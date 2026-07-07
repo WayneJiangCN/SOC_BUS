@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -17,11 +18,20 @@
 #include "tm_mesh_types.h"
 #include "tm_que.h"
 
+class Tm_mesh_inf;
+using tm_mesh_inf_t = Tm_mesh_inf;
+using p_tm_mesh_inf_t = std::shared_ptr<tm_mesh_inf_t>;
+
 /*
  * TmMeshFabric:
- * transaction-level mesh NoC-lite 主模块。
+ * transaction-level mesh NoC-lite shared fabric.
  *
- * 它与 ring 版本保持事务接口一致，只把内部拓扑从一维环扩展成二维网格。
+ * 这一版将 master 本地缓存、grant 和回包处理收进 master-side NIU
+ * `Tm_mesh_inf`，fabric 只保留共享网络本体：
+ * - mesh 内部 request/data/response FIFO
+ * - target local FIFO
+ * - topology / route / target flow control
+ * - shared transaction context
  */
 class TmMeshFabric : public tm_engine::TmModule
 {
@@ -38,6 +48,8 @@ class TmMeshFabric : public tm_engine::TmModule
 
     virtual void tick();
 
+    virtual void attach_master(uint32_t idx, p_tm_mesh_inf_t inf);
+    virtual void attach_master(p_tm_mesh_inf_t inf);
     virtual void attach_master(uint32_t idx, p_tm_com_inf_t inf);
     virtual void attach_master(uint32_t idx, p_pem_biu_t biu);
     virtual void attach_master(p_pem_biu_t biu);
@@ -46,51 +58,29 @@ class TmMeshFabric : public tm_engine::TmModule
     virtual void bind_master_id(uint32_t port_id, uint32_t mst_id);
 
   public:
-    /* 基本实例上下文。 */
     tm_engine::p_tm_clk_t clk_ = nullptr;
     p_tm_mesh_cfg_t cfg_ = nullptr;
 
-    /* 上游/下游接口。 */
-    std::vector<p_tm_com_inf_t> v_master_inf_;
+    std::vector<p_tm_mesh_inf_t> v_master_niu_;
     std::vector<p_tm_com_inf_t> v_target_inf_;
 
   protected:
-    /* master 入口 FIFO。 */
-    std::vector<p_tm_com_que_t> m_rd_req_fifo_;
-    std::vector<p_tm_com_que_t> m_wr_req_fifo_;
-    std::vector<p_tm_com_que_t> m_wr_dat_fifo_;
-
-    /* target 本地 FIFO。 */
     std::vector<p_tm_com_que_t> t_rd_req_fifo_;
     std::vector<p_tm_com_que_t> t_wr_req_fifo_;
     std::vector<p_tm_com_que_t> t_wr_dat_fifo_;
 
-    std::vector<std::vector<p_tm_com_que_t>> m_rd_rsp_fifo_;
-    std::vector<p_tm_com_que_t> m_wr_req_rsp_fifo_;
-    std::vector<p_tm_com_que_t> m_wr_dat_rsp_fifo_;
-
-    /* mesh request subnet：RD_REQ 和 WR_REQ 共用这一组 router FIFO。 */
     std::vector<p_tm_com_que_t> mesh_req_fifo_;
-    /* mesh data subnet：WR_DAT 单独走写数据子网。 */
     std::vector<p_tm_com_que_t> mesh_wr_dat_fifo_;
-    /* mesh response subnet：响应仍按语义拆分。 */
     std::vector<std::vector<p_tm_com_que_t>> mesh_rd_rsp_fifo_;
     std::vector<p_tm_com_que_t> mesh_wr_req_rsp_fifo_;
     std::vector<p_tm_com_que_t> mesh_wr_dat_rsp_fifo_;
 
-    /* 写事务 grant 跟踪与事务上下文表。 */
-    std::vector<std::deque<TmMeshGrant>> m_wr_grant_fifo_;
     std::unordered_map<uint64_t, TmMeshTxnCtx> txn_ctx_;
 
     std::vector<tm_engine::tm_time_t> next_rd_issue_time_;
     std::vector<tm_engine::tm_time_t> next_wr_req_issue_time_;
     std::vector<tm_engine::tm_time_t> next_wr_dat_issue_time_;
 
-    std::vector<std::vector<tm_engine::tm_time_t>> next_rd_rsp_issue_time_;
-    std::vector<tm_engine::tm_time_t> next_wr_req_rsp_issue_time_;
-    std::vector<tm_engine::tm_time_t> next_wr_dat_rsp_issue_time_;
-
-    /* request/data/response 三类子网各自维护逐跳节流时间。 */
     std::vector<tm_engine::tm_time_t> next_mesh_req_hop_time_;
     std::vector<tm_engine::tm_time_t> next_mesh_wr_dat_hop_time_;
     std::vector<tm_engine::tm_time_t> next_mesh_rd_rsp_hop_time_;
@@ -109,7 +99,6 @@ class TmMeshFabric : public tm_engine::TmModule
 
   protected:
     void recv_master_reqs();
-    void recv_master_req(uint32_t master_port, aic_req_type_t req_type);
 
     void inject_mesh_reqs();
     void inject_mesh_req(uint32_t master_port, aic_req_type_t req_type);
@@ -131,12 +120,7 @@ class TmMeshFabric : public tm_engine::TmModule
     void advance_mesh_wr_dat_rsps();
 
     void send_master_rsps();
-    void send_master_rd_rsp(uint32_t master_port, uint32_t lane);
-    void send_master_wr_req_rsp(uint32_t master_port);
-    void send_master_wr_dat_rsp(uint32_t master_port);
 
-    p_tm_com_que_t get_master_fifo(uint32_t master_port,
-                                   aic_req_type_t req_type) const;
     p_tm_com_que_t get_target_fifo(uint32_t target_id,
                                    aic_req_type_t req_type) const;
     p_tm_com_que_t get_mesh_req_fifo(uint32_t router_id,
@@ -153,13 +137,14 @@ class TmMeshFabric : public tm_engine::TmModule
 using tm_mesh_fabric_t = TmMeshFabric;
 using p_tm_mesh_fabric_t = std::shared_ptr<TmMeshFabric>;
 
-inline p_tm_mesh_cfg_t tm_make_mesh_cfg()
+inline p_tm_mesh_cfg_t
+tm_make_mesh_cfg()
 {
     return std::make_shared<tm_mesh_cfg_t>();
 }
 
-inline p_tm_mesh_fabric_t tm_make_mesh(tm_engine::p_tm_clk_t clk,
-                                       p_tm_mesh_cfg_t cfg)
+inline p_tm_mesh_fabric_t
+tm_make_mesh(tm_engine::p_tm_clk_t clk, p_tm_mesh_cfg_t cfg)
 {
     return std::make_shared<TmMeshFabric>(clk, cfg);
 }

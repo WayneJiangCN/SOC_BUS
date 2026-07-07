@@ -2,13 +2,14 @@
 
 #include <unordered_set>
 
+#include "tm_mesh_inf.h"
+
 using namespace std;
 using namespace tm_engine;
 
 namespace
 {
 
-/* 用 pld 地址标记“本拍是否已在 mesh 中前推过一跳”。 */
 uintptr_t
 mesh_packet_tag(p_tm_pld_t pld)
 {
@@ -20,54 +21,16 @@ mesh_packet_tag(p_tm_pld_t pld)
 void
 TmMeshFabric::recv_master_reqs()
 {
-    /* 从所有 master 接口吸收请求，并按事务类型写入入口 FIFO。 */
-    for (uint32_t master = 0; master < cfg_->num_masters; ++master) {
-        recv_master_req(master, aic_req_type_t::WR_REQ);
-        recv_master_req(master, aic_req_type_t::WR_DAT);
-        recv_master_req(master, aic_req_type_t::RD_REQ);
-    }
-}
-
-void
-TmMeshFabric::recv_master_req(uint32_t master_port, aic_req_type_t req_type)
-{
     /*
-     * 新的 RD_REQ / WR_REQ 在这里建立事务上下文。
-     * WR_DAT 不新建事务，而是复用前面 WR_REQ 创建的上下文。
+     * master 本地的请求 FIFO 已经移到 Tm_mesh_inf 中。
+     * fabric 这里只负责让每个 NIU 从上游接口吸包，并在必要时建立事务上下文。
      */
-    uint32_t chan = static_cast<uint32_t>(req_type);
-    auto inf = v_master_inf_[master_port];
-    auto fifo = get_master_fifo(master_port, req_type);
-
-    while (inf->valid(chan) && !fifo->full()) {
-        auto pld = inf->get_pld(chan);
-
-        uint32_t expected_mst_id = topology_.port_master_id(master_port);
-        if (pld->mst_id == 0) {
-            pld->mst_id = expected_mst_id;
+    for (uint32_t master = 0; master < cfg_->num_masters; ++master) {
+        if (master >= v_master_niu_.size() || v_master_niu_[master] == nullptr) {
+            continue;
         }
-
-        auto key = make_txn_key(pld);
-        auto it = txn_ctx_.find(key);
-        if (req_type == aic_req_type_t::WR_DAT) {
-            if (it != txn_ctx_.end()) {
-                it->second.state = tm_mesh_txn_state_t::IN_INGRESS_FIFO;
-            }
-        } else {
-            TmMeshTxnCtx ctx;
-            ctx.master_port = master_port;
-            ctx.target_id = topology_.decode_target(pld->addr);
-            ctx.src_node = topology_.master_node(master_port);
-            ctx.dst_node = topology_.target_node(ctx.target_id);
-            ctx.req_type = req_type;
-            ctx.state = tm_mesh_txn_state_t::IN_INGRESS_FIFO;
-            ctx.size = pld->size;
-            ctx.issue_time = time();
-            txn_ctx_.emplace(key, ctx);
-        }
-
-        fifo->push_back(pld);
-        inf->pop_pld(chan);
+        v_master_niu_[master]->ingest_upstream_reqs(master, topology_, txn_ctx_,
+                                                    time());
     }
 }
 
@@ -75,9 +38,8 @@ void
 TmMeshFabric::inject_mesh_reqs()
 {
     /*
-     * 入口 FIFO 到 mesh 的注入阶段。
-     * RD_REQ 和 WR_REQ 都注入 request subnet，
-     * WR_DAT 注入独立 data subnet。
+     * RD_REQ 和 WR_REQ 共用 request subnet。
+     * WR_DAT 单独走 data subnet。
      */
     for (uint32_t master = 0; master < cfg_->num_masters; ++master) {
         inject_mesh_req(master, aic_req_type_t::RD_REQ);
@@ -89,27 +51,47 @@ TmMeshFabric::inject_mesh_reqs()
 void
 TmMeshFabric::inject_mesh_req(uint32_t master_port, aic_req_type_t req_type)
 {
-    auto master_fifo = get_master_fifo(master_port, req_type);
+    if (master_port >= v_master_niu_.size() || v_master_niu_[master_port] == nullptr) {
+        return;
+    }
+
+    auto niu = v_master_niu_[master_port];
     auto router_id = topology_.master_node(master_port);
     auto mesh_fifo = get_mesh_req_fifo(router_id, req_type);
 
-    while (!master_fifo->empty() && !mesh_fifo->full()) {
-        auto pld = master_fifo->front();
+    while (niu->has_req(req_type) && !mesh_fifo->full()) {
+        auto pld = niu->front_req(req_type);
+        if (pld == nullptr) {
+            return;
+        }
 
         auto key = make_txn_key(pld);
         auto ctx_it = txn_ctx_.find(key);
         if (ctx_it == txn_ctx_.end()) {
-            return;
+            if (req_type == aic_req_type_t::WR_DAT) {
+                return;
+            }
+
+            TmMeshTxnCtx ctx;
+            ctx.master_port = master_port;
+            ctx.target_id = topology_.decode_target(pld->addr);
+            ctx.src_node = topology_.master_node(master_port);
+            ctx.dst_node = topology_.target_node(ctx.target_id);
+            ctx.req_type = req_type;
+            ctx.state = tm_mesh_txn_state_t::IN_INGRESS_FIFO;
+            ctx.size = pld->size;
+            ctx.issue_time = time();
+            ctx_it = txn_ctx_.emplace(key, ctx).first;
         }
 
         if (req_type == aic_req_type_t::WR_DAT) {
             /*
-             * WR_DAT 必须先匹配到对应 grant，才能进入 data subnet。
+             * WR_DAT 必须等对应 grant 到位后，才能从 NIU 注入 data subnet。
              */
-            if (m_wr_grant_fifo_[master_port].empty()) {
+            if (!niu->has_grant()) {
                 return;
             }
-            const auto& grant = m_wr_grant_fifo_[master_port].front();
+            const auto& grant = niu->front_grant();
             if (!flow_ctrl_.wr_grant_match(grant.target_id, grant.gid,
                                            ctx_it->second.target_id, pld,
                                            cfg_->strict_wr_grant_order)) {
@@ -117,7 +99,7 @@ TmMeshFabric::inject_mesh_req(uint32_t master_port, aic_req_type_t req_type)
             }
         }
 
-        master_fifo->pop_front();
+        niu->pop_req(req_type);
         mesh_fifo->push_back(pld);
         ctx_it->second.state = tm_mesh_txn_state_t::IN_REQ_MESH;
     }
@@ -126,7 +108,6 @@ TmMeshFabric::inject_mesh_req(uint32_t master_port, aic_req_type_t req_type)
 void
 TmMeshFabric::advance_mesh_reqs()
 {
-    /* request subnet 承载 RD_REQ + WR_REQ，data subnet 单独承载 WR_DAT。 */
     advance_mesh_req_subnet();
     advance_mesh_wr_dat_subnet();
 }
@@ -134,11 +115,6 @@ TmMeshFabric::advance_mesh_reqs()
 void
 TmMeshFabric::advance_mesh_req_subnet()
 {
-    /*
-     * request subnet 单跳前推：
-     * - 队列里可能混有 RD_REQ 和 WR_REQ
-     * - 真实请求类型从 txn_ctx_ 中获取
-     */
     std::unordered_set<uintptr_t> moved_tags;
 
     for (uint32_t router = 0; router < mesh_router_count_; ++router) {
@@ -160,7 +136,6 @@ TmMeshFabric::advance_mesh_req_subnet()
         }
 
         auto actual_req_type = ctx_it->second.req_type;
-
         if (router == ctx_it->second.dst_node) {
             auto target_fifo =
                 get_target_fifo(ctx_it->second.target_id, actual_req_type);
@@ -201,10 +176,6 @@ TmMeshFabric::advance_mesh_req_subnet()
 void
 TmMeshFabric::advance_mesh_wr_dat_subnet()
 {
-    /*
-     * data subnet 单独承载 WR_DAT，
-     * 避免写数据流把 request subnet 队头完全堵死。
-     */
     std::unordered_set<uintptr_t> moved_tags;
 
     for (uint32_t router = 0; router < mesh_router_count_; ++router) {
@@ -275,10 +246,6 @@ TmMeshFabric::send_target_reqs()
 void
 TmMeshFabric::send_target_req(uint32_t target_id, aic_req_type_t req_type)
 {
-    /*
-     * 到达目标 router 后，请求先进入 target local FIFO，
-     * 再在这里真正受 target slot/token/busy 的约束。
-     */
     auto target_fifo = get_target_fifo(target_id, req_type);
     if (target_fifo->empty()) {
         return;
@@ -319,10 +286,10 @@ TmMeshFabric::send_target_req(uint32_t target_id, aic_req_type_t req_type)
         }
 
         if (req_type == aic_req_type_t::WR_DAT) {
-            /* WR_DAT 真正发给 target 后，grant 才从队头出队。 */
             uint32_t master_port = topology_.find_master_port(pld->mst_id);
-            if (!m_wr_grant_fifo_[master_port].empty()) {
-                m_wr_grant_fifo_[master_port].pop_front();
+            if (master_port < v_master_niu_.size() &&
+                v_master_niu_[master_port] != nullptr) {
+                v_master_niu_[master_port]->pop_grant();
             }
         }
 

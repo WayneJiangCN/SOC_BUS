@@ -2,17 +2,10 @@
 
 #include <algorithm>
 
+#include "tm_mesh_inf.h"
+
 using namespace std;
 using namespace tm_engine;
-
-/*
- * tm_mesh_core.cc
- *
- * 这里放 mesh 版本 fabric 的框架逻辑：
- * - 配置与 router/FIFO 资源创建
- * - reset / idle / tick
- * - attach / bind
- */
 
 TmMeshFabric::TmMeshFabric()
 {
@@ -32,7 +25,6 @@ TmMeshFabric::~TmMeshFabric()
 void
 TmMeshFabric::config()
 {
-    /* 先配置 mesh 拓扑，再复用一层 bus_cfg 给 target 流控模块使用。 */
     topology_.config(cfg_);
 
     flow_ctrl_cfg_ = std::make_shared<tm_bus_cfg_t>();
@@ -46,19 +38,8 @@ TmMeshFabric::config()
     mesh_cols_ = topology_.cols();
     mesh_link_latency_ = cfg_->mesh_link_latency;
 
-    const uint32_t chan_num = static_cast<uint32_t>(aic_req_type_t::RD_REQ) +
-                              cfg_->rd_rsp_port_num;
-
-    v_master_inf_.clear();
+    v_master_niu_.clear();
     v_target_inf_.clear();
-
-    m_rd_req_fifo_.clear();
-    m_wr_req_fifo_.clear();
-    m_wr_dat_fifo_.clear();
-    m_rd_rsp_fifo_.clear();
-    m_wr_req_rsp_fifo_.clear();
-    m_wr_dat_rsp_fifo_.clear();
-    m_wr_grant_fifo_.clear();
 
     t_rd_req_fifo_.clear();
     t_wr_req_fifo_.clear();
@@ -73,9 +54,6 @@ TmMeshFabric::config()
     next_rd_issue_time_.assign(cfg_->num_targets, 0);
     next_wr_req_issue_time_.assign(cfg_->num_targets, 0);
     next_wr_dat_issue_time_.assign(cfg_->num_targets, 0);
-    next_rd_rsp_issue_time_.resize(cfg_->num_masters);
-    next_wr_req_rsp_issue_time_.assign(cfg_->num_masters, 0);
-    next_wr_dat_rsp_issue_time_.assign(cfg_->num_masters, 0);
 
     next_mesh_req_hop_time_.assign(mesh_router_count_, 0);
     next_mesh_wr_dat_hop_time_.assign(mesh_router_count_, 0);
@@ -85,54 +63,19 @@ TmMeshFabric::config()
 
     topology_.reset(cfg_->num_masters);
 
-    /* 为每个 master 创建入口接口与相关 FIFO。 */
     for (uint32_t i = 0; i < cfg_->num_masters; ++i) {
-        auto master_inf = tm_make_com_inf(clk_, this->name() + "_master_inf" +
-                                          std::to_string(i),
-                                          cfg_->master_inf_depth);
-        master_inf->set_chan_num(chan_num);
-        v_master_inf_.push_back(master_inf);
-
-        m_rd_req_fifo_.push_back(
-            tm_make_com_que(clk_, this->name() + "_m_rd_req_fifo" +
-                                      std::to_string(i),
-                            cfg_->master_rd_req_fifo_depth));
-        m_wr_req_fifo_.push_back(
-            tm_make_com_que(clk_, this->name() + "_m_wr_req_fifo" +
-                                      std::to_string(i),
-                            cfg_->master_wr_req_fifo_depth));
-        m_wr_dat_fifo_.push_back(
-            tm_make_com_que(clk_, this->name() + "_m_wr_dat_fifo" +
-                                      std::to_string(i),
-                            cfg_->master_wr_dat_fifo_depth));
-
-        next_rd_rsp_issue_time_[i].assign(cfg_->rd_rsp_port_num, 0);
-        m_rd_rsp_fifo_.emplace_back();
-        for (uint32_t lane = 0; lane < cfg_->rd_rsp_port_num; ++lane) {
-            m_rd_rsp_fifo_[i].push_back(
-                tm_make_com_que(clk_, this->name() + "_m_rd_rsp_fifo" +
-                                          std::to_string(i) + "_" +
-                                          std::to_string(lane),
-                                cfg_->master_rd_rsp_fifo_depth));
-        }
-
-        m_wr_req_rsp_fifo_.push_back(
-            tm_make_com_que(clk_, this->name() + "_m_wr_req_rsp_fifo" +
-                                      std::to_string(i),
-                            cfg_->master_wr_req_rsp_fifo_depth));
-        m_wr_dat_rsp_fifo_.push_back(
-            tm_make_com_que(clk_, this->name() + "_m_wr_dat_rsp_fifo" +
-                                      std::to_string(i),
-                            cfg_->master_wr_dat_rsp_fifo_depth));
-        m_wr_grant_fifo_.emplace_back();
+        auto niu = tm_make_mesh_inf(this->name() + "_master_niu" +
+                                        std::to_string(i),
+                                    clk_, i, cfg_);
+        v_master_niu_.push_back(niu);
     }
 
-    /* 为每个 target 创建本地 FIFO。 */
+    const uint32_t chan_num = static_cast<uint32_t>(aic_req_type_t::RD_REQ) +
+                              cfg_->rd_rsp_port_num;
     for (uint32_t i = 0; i < cfg_->num_targets; ++i) {
         auto target_cfg = cfg_->targets[i];
-
         auto target_inf = tm_make_com_inf(clk_, this->name() + "_target_inf" +
-                                          std::to_string(i),
+                                                    std::to_string(i),
                                           cfg_->target_inf_depth);
         target_inf->set_chan_num(chan_num);
         v_target_inf_.push_back(target_inf);
@@ -151,7 +94,6 @@ TmMeshFabric::config()
                             target_cfg->wr_dat_fifo_depth));
     }
 
-    /* 为每个 router 节点创建 mesh 内部 request/response FIFO。 */
     mesh_rd_rsp_fifo_.resize(mesh_router_count_);
     for (uint32_t router = 0; router < mesh_router_count_; ++router) {
         mesh_req_fifo_.push_back(
@@ -162,7 +104,6 @@ TmMeshFabric::config()
             tm_make_com_que(clk_, this->name() + "_mesh_wr_dat_fifo_" +
                                       std::to_string(router),
                             cfg_->mesh_req_fifo_depth));
-
         mesh_wr_req_rsp_fifo_.push_back(
             tm_make_com_que(clk_, this->name() + "_mesh_wr_req_rsp_fifo_" +
                                       std::to_string(router),
@@ -171,7 +112,6 @@ TmMeshFabric::config()
             tm_make_com_que(clk_, this->name() + "_mesh_wr_dat_rsp_fifo_" +
                                       std::to_string(router),
                             cfg_->mesh_rsp_fifo_depth));
-
         for (uint32_t lane = 0; lane < cfg_->rd_rsp_port_num; ++lane) {
             mesh_rd_rsp_fifo_[router].push_back(
                 tm_make_com_que(clk_, this->name() + "_mesh_rd_rsp_fifo_" +
@@ -193,25 +133,17 @@ TmMeshFabric::build()
 void
 TmMeshFabric::reset()
 {
-    /* reset 要同时清空端点侧、mesh 内部和事务级全部状态。 */
     txn_ctx_.clear();
 
-    for (auto& inf : v_master_inf_) {
-        inf->reset();
+    for (auto& niu : v_master_niu_) {
+        if (niu != nullptr) {
+            niu->reset();
+        }
     }
     for (auto& inf : v_target_inf_) {
         inf->reset();
     }
 
-    for (auto& q : m_rd_req_fifo_) {
-        q->clear();
-    }
-    for (auto& q : m_wr_req_fifo_) {
-        q->clear();
-    }
-    for (auto& q : m_wr_dat_fifo_) {
-        q->clear();
-    }
     for (auto& q : t_rd_req_fifo_) {
         q->clear();
     }
@@ -238,28 +170,11 @@ TmMeshFabric::reset()
     for (auto& q : mesh_wr_dat_rsp_fifo_) {
         q->clear();
     }
-    for (auto& lanes : m_rd_rsp_fifo_) {
-        for (auto& q : lanes) {
-            q->clear();
-        }
-    }
-    for (auto& q : m_wr_req_rsp_fifo_) {
-        q->clear();
-    }
-    for (auto& q : m_wr_dat_rsp_fifo_) {
-        q->clear();
-    }
-    for (auto& grants : m_wr_grant_fifo_) {
-        grants.clear();
-    }
 
     std::fill(next_rd_issue_time_.begin(), next_rd_issue_time_.end(), 0);
     std::fill(next_wr_req_issue_time_.begin(), next_wr_req_issue_time_.end(), 0);
     std::fill(next_wr_dat_issue_time_.begin(), next_wr_dat_issue_time_.end(), 0);
-    std::fill(next_wr_req_rsp_issue_time_.begin(),
-              next_wr_req_rsp_issue_time_.end(), 0);
-    std::fill(next_wr_dat_rsp_issue_time_.begin(),
-              next_wr_dat_rsp_issue_time_.end(), 0);
+
     std::fill(next_mesh_req_hop_time_.begin(),
               next_mesh_req_hop_time_.end(), 0);
     std::fill(next_mesh_wr_dat_hop_time_.begin(),
@@ -270,9 +185,6 @@ TmMeshFabric::reset()
               next_mesh_wr_req_rsp_hop_time_.end(), 0);
     std::fill(next_mesh_wr_dat_rsp_hop_time_.begin(),
               next_mesh_wr_dat_rsp_hop_time_.end(), 0);
-    for (auto& lanes : next_rd_rsp_issue_time_) {
-        std::fill(lanes.begin(), lanes.end(), 0);
-    }
 
     flow_ctrl_.reset();
     arbiter_.reset();
@@ -283,20 +195,11 @@ TmMeshFabric::idle()
 {
     bool ret = txn_ctx_.empty();
 
-    for (auto& inf : v_master_inf_) {
-        ret = ret && inf->idle();
+    for (auto& niu : v_master_niu_) {
+        ret = ret && niu != nullptr && niu->idle();
     }
     for (auto& inf : v_target_inf_) {
         ret = ret && inf->idle();
-    }
-    for (auto& q : m_rd_req_fifo_) {
-        ret = ret && q->empty();
-    }
-    for (auto& q : m_wr_req_fifo_) {
-        ret = ret && q->empty();
-    }
-    for (auto& q : m_wr_dat_fifo_) {
-        ret = ret && q->empty();
     }
     for (auto& q : t_rd_req_fifo_) {
         ret = ret && q->empty();
@@ -324,27 +227,12 @@ TmMeshFabric::idle()
     for (auto& q : mesh_wr_dat_rsp_fifo_) {
         ret = ret && q->empty();
     }
-    for (auto& lanes : m_rd_rsp_fifo_) {
-        for (auto& q : lanes) {
-            ret = ret && q->empty();
-        }
-    }
-    for (auto& q : m_wr_req_rsp_fifo_) {
-        ret = ret && q->empty();
-    }
-    for (auto& q : m_wr_dat_rsp_fifo_) {
-        ret = ret && q->empty();
-    }
-    for (const auto& grants : m_wr_grant_fifo_) {
-        ret = ret && grants.empty();
-    }
     return ret;
 }
 
 void
 TmMeshFabric::tick()
 {
-    /* 与 ring 版本一致：优先处理回程，再推进新的去程请求。 */
     flow_ctrl_.update_tokens(time());
     recv_target_rsps();
     advance_mesh_rsps();
@@ -356,14 +244,41 @@ TmMeshFabric::tick()
 }
 
 void
+TmMeshFabric::attach_master(uint32_t idx, p_tm_mesh_inf_t inf)
+{
+    if (idx >= v_master_niu_.size() || inf == nullptr) {
+        return;
+    }
+
+    inf->bind_master_id(topology_.port_master_id(idx));
+    v_master_niu_[idx] = inf;
+}
+
+void
+TmMeshFabric::attach_master(p_tm_mesh_inf_t inf)
+{
+    if (inf == nullptr) {
+        return;
+    }
+    attach_master(inf->inf_id_, inf);
+}
+
+void
 TmMeshFabric::attach_master(uint32_t idx, p_tm_com_inf_t inf)
 {
-    v_master_inf_[idx]->connect(inf);
+    if (idx >= v_master_niu_.size() || v_master_niu_[idx] == nullptr ||
+        inf == nullptr) {
+        return;
+    }
+    v_master_niu_[idx]->connect_upstream(inf);
 }
 
 void
 TmMeshFabric::attach_master(uint32_t idx, p_pem_biu_t biu)
 {
+    if (biu == nullptr) {
+        return;
+    }
     attach_master(idx, biu->out_intf_);
     bind_master_id(idx, biu->core_id_);
 }
@@ -371,38 +286,37 @@ TmMeshFabric::attach_master(uint32_t idx, p_pem_biu_t biu)
 void
 TmMeshFabric::attach_master(p_pem_biu_t biu)
 {
+    if (biu == nullptr) {
+        return;
+    }
     attach_master(biu->core_id_, biu);
 }
 
 void
 TmMeshFabric::attach_target(uint32_t idx, p_tm_com_inf_t inf)
 {
+    if (idx >= v_target_inf_.size() || inf == nullptr) {
+        return;
+    }
     v_target_inf_[idx]->connect(inf);
 }
 
 void
 TmMeshFabric::attach_target(uint32_t idx, p_tm_mem_t mem)
 {
+    if (mem == nullptr) {
+        return;
+    }
     attach_target(idx, mem->rw_inf_);
 }
 
 void
 TmMeshFabric::bind_master_id(uint32_t port_id, uint32_t mst_id)
 {
-    /* 让协议 master_id 与物理端口号解耦。 */
     topology_.bind_master_id(port_id, mst_id);
-}
-
-p_tm_com_que_t
-TmMeshFabric::get_master_fifo(uint32_t master_port, aic_req_type_t req_type) const
-{
-    if (req_type == aic_req_type_t::RD_REQ) {
-        return m_rd_req_fifo_[master_port];
+    if (port_id < v_master_niu_.size() && v_master_niu_[port_id] != nullptr) {
+        v_master_niu_[port_id]->bind_master_id(mst_id);
     }
-    if (req_type == aic_req_type_t::WR_REQ) {
-        return m_wr_req_fifo_[master_port];
-    }
-    return m_wr_dat_fifo_[master_port];
 }
 
 p_tm_com_que_t
