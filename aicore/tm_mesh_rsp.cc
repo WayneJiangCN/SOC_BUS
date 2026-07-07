@@ -8,6 +8,7 @@ using namespace tm_engine;
 namespace
 {
 
+/* 响应回程同样需要防止同拍多次前推。 */
 uintptr_t
 mesh_rsp_packet_tag(p_tm_pld_t pld)
 {
@@ -19,6 +20,7 @@ mesh_rsp_packet_tag(p_tm_pld_t pld)
 void
 TmMeshFabric::recv_target_rsps()
 {
+    /* 从所有 target 接口吸收回包，并注入 mesh 回程子网。 */
     for (uint32_t target = 0; target < cfg_->num_targets; ++target) {
         recv_target_wr_req_rsp(target);
         recv_target_wr_dat_rsp(target);
@@ -31,6 +33,7 @@ TmMeshFabric::recv_target_rsps()
 void
 TmMeshFabric::recv_target_rd_rsp(uint32_t target_id, uint32_t lane)
 {
+    /* 读响应从目标 router 进入 mesh 回程网络。 */
     uint32_t chan = static_cast<uint32_t>(aic_req_type_t::RD_REQ) + lane;
     auto inf = v_target_inf_[target_id];
     auto router_fifo =
@@ -54,6 +57,7 @@ TmMeshFabric::recv_target_rd_rsp(uint32_t target_id, uint32_t lane)
 void
 TmMeshFabric::recv_target_wr_req_rsp(uint32_t target_id)
 {
+    /* WR_REQ_RSP 同时承担响应返回与 grant 生成两项职责。 */
     uint32_t chan = static_cast<uint32_t>(aic_req_type_t::WR_REQ);
     auto inf = v_target_inf_[target_id];
     auto router_fifo =
@@ -121,6 +125,7 @@ TmMeshFabric::advance_mesh_rsps()
 void
 TmMeshFabric::advance_mesh_rd_rsps()
 {
+    /* 读响应按 lane 分离推进，避免不同 lane 相互阻塞。 */
     std::unordered_set<uintptr_t> moved_tags;
 
     for (uint32_t router = 0; router < mesh_router_count_; ++router) {
@@ -186,6 +191,7 @@ TmMeshFabric::advance_mesh_rd_rsps()
 void
 TmMeshFabric::advance_mesh_wr_req_rsps()
 {
+    /* 写请求响应回到源 router 后，才落入 master 的回包 FIFO。 */
     std::unordered_set<uintptr_t> moved_tags;
 
     for (uint32_t router = 0; router < mesh_router_count_; ++router) {
@@ -241,6 +247,7 @@ TmMeshFabric::advance_mesh_wr_req_rsps()
 void
 TmMeshFabric::advance_mesh_wr_dat_rsps()
 {
+    /* 写完成响应回到源 router 后，写事务生命周期结束。 */
     std::unordered_set<uintptr_t> moved_tags;
 
     for (uint32_t router = 0; router < mesh_router_count_; ++router) {
@@ -308,6 +315,7 @@ TmMeshFabric::send_master_rsps()
 void
 TmMeshFabric::send_master_rd_rsp(uint32_t master_port, uint32_t lane)
 {
+    /* 送回读响应时，同时做 credit 释放和多拍响应计数。 */
     auto fifo = m_rd_rsp_fifo_[master_port][lane];
     if (fifo->empty()) {
         return;
@@ -348,6 +356,7 @@ TmMeshFabric::send_master_rd_rsp(uint32_t master_port, uint32_t lane)
 void
 TmMeshFabric::send_master_wr_req_rsp(uint32_t master_port)
 {
+    /* WR_REQ_RSP 回到 BIU 后，BIU 才能继续 WR_DAT。 */
     auto fifo = m_wr_req_rsp_fifo_[master_port];
     if (fifo->empty()) {
         return;
@@ -375,6 +384,7 @@ TmMeshFabric::send_master_wr_req_rsp(uint32_t master_port)
 void
 TmMeshFabric::send_master_wr_dat_rsp(uint32_t master_port)
 {
+    /* WR_DAT_RSP 是写事务最终完成点，并在这里释放写 slot。 */
     auto fifo = m_wr_dat_rsp_fifo_[master_port];
     if (fifo->empty()) {
         return;

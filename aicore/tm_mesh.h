@@ -17,6 +17,12 @@
 #include "tm_mesh_types.h"
 #include "tm_que.h"
 
+/*
+ * TmMeshFabric:
+ * transaction-level mesh NoC-lite 主模块。
+ *
+ * 它与 ring 版本保持事务接口一致，只把内部拓扑从一维环扩展成二维网格。
+ */
 class TmMeshFabric : public tm_engine::TmModule
 {
   public:
@@ -40,17 +46,21 @@ class TmMeshFabric : public tm_engine::TmModule
     virtual void bind_master_id(uint32_t port_id, uint32_t mst_id);
 
   public:
+    /* 基本实例上下文。 */
     tm_engine::p_tm_clk_t clk_ = nullptr;
     p_tm_mesh_cfg_t cfg_ = nullptr;
 
+    /* 上游/下游接口。 */
     std::vector<p_tm_com_inf_t> v_master_inf_;
     std::vector<p_tm_com_inf_t> v_target_inf_;
 
   protected:
+    /* master 入口 FIFO。 */
     std::vector<p_tm_com_que_t> m_rd_req_fifo_;
     std::vector<p_tm_com_que_t> m_wr_req_fifo_;
     std::vector<p_tm_com_que_t> m_wr_dat_fifo_;
 
+    /* target 本地 FIFO。 */
     std::vector<p_tm_com_que_t> t_rd_req_fifo_;
     std::vector<p_tm_com_que_t> t_wr_req_fifo_;
     std::vector<p_tm_com_que_t> t_wr_dat_fifo_;
@@ -59,6 +69,7 @@ class TmMeshFabric : public tm_engine::TmModule
     std::vector<p_tm_com_que_t> m_wr_req_rsp_fifo_;
     std::vector<p_tm_com_que_t> m_wr_dat_rsp_fifo_;
 
+    /* mesh 内部 router FIFO。 */
     std::vector<p_tm_com_que_t> mesh_rd_req_fifo_;
     std::vector<p_tm_com_que_t> mesh_wr_req_fifo_;
     std::vector<p_tm_com_que_t> mesh_wr_dat_fifo_;
@@ -66,6 +77,7 @@ class TmMeshFabric : public tm_engine::TmModule
     std::vector<p_tm_com_que_t> mesh_wr_req_rsp_fifo_;
     std::vector<p_tm_com_que_t> mesh_wr_dat_rsp_fifo_;
 
+    /* 写事务 grant 跟踪与事务上下文表。 */
     std::vector<std::deque<TmMeshGrant>> m_wr_grant_fifo_;
     std::unordered_map<uint64_t, TmMeshTxnCtx> txn_ctx_;
 

@@ -7,6 +7,13 @@
 
 #include "tm_bus_types.h"
 
+/*
+ * TmBusFlowCtrl:
+ * target 级事务流控模块。
+ *
+ * 它不关心 ring/mesh 如何逐跳前进，只负责 target 是否还能接受新事务，
+ * 以及 slot/token 的消耗与释放。
+ */
 class TmBusFlowCtrl
 {
   public:

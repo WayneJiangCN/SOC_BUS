@@ -7,6 +7,11 @@
 
 #include "tm_bus_types.h"
 
+/*
+ * TmBusArbiter:
+ * 仲裁扩展点。当前主路径以 FIFO/逐跳推进为主，这里主要为后续
+ * 局部 router 出口仲裁或更复杂 QoS 机制预留接口。
+ */
 class TmBusArbiter
 {
   public:

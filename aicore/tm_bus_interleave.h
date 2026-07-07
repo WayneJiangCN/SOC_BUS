@@ -7,6 +7,10 @@
 
 #include "tm_bus_types.h"
 
+/*
+ * TmBusInterleave:
+ * 在共享地址域下决定“这个地址应该落到哪一个 slice/target”。
+ */
 class TmBusInterleave
 {
   public:

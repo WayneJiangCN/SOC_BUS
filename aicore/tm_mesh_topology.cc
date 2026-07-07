@@ -1,5 +1,15 @@
 #include "tm_mesh_topology.h"
 
+/*
+ * tm_mesh_topology.cc
+ *
+ * 负责 mesh 版本的：
+ * - rows/cols/router_count 计算
+ * - master_id 映射
+ * - 地址到 target 的 decode
+ * - 当前 router 到下一跳 router 的确定性坐标路由
+ */
+
 namespace
 {
 
@@ -14,6 +24,7 @@ ceil_div_u32(uint32_t x, uint32_t y)
 void
 TmMeshTopology::config(p_tm_mesh_cfg_t cfg)
 {
+    /* mesh 网格首先要满足 endpoint 都能映射到有效 router。 */
     cfg_ = cfg;
     interleave_rules_.clear();
 
@@ -41,6 +52,7 @@ TmMeshTopology::config(p_tm_mesh_cfg_t cfg)
 void
 TmMeshTopology::reset(uint32_t num_masters)
 {
+    /* 缺省绑定：port_id == mst_id。 */
     master_id_to_port_.clear();
     port_to_master_id_.assign(num_masters, 0);
     for (uint32_t i = 0; i < num_masters; ++i) {
@@ -77,6 +89,7 @@ TmMeshTopology::find_master_port(uint32_t mst_id) const
 uint32_t
 TmMeshTopology::decode_target(uint64_t addr) const
 {
+    /* 先按地址范围筛选，再按 interleave 规则选具体 target。 */
     uint32_t default_target = 0;
     bool has_default = false;
 
@@ -133,6 +146,7 @@ TmMeshTopology::target_node(uint32_t target_id) const
 uint32_t
 TmMeshTopology::compute_next_node(uint32_t cur_node, uint32_t dst_node) const
 {
+    /* 当前只实现确定性 X-first/Y-first 路由，不做自适应选择。 */
     if (cur_node == dst_node) {
         return cur_node;
     }

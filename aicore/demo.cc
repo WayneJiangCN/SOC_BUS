@@ -17,6 +17,12 @@
 using namespace std;
 using namespace tm_engine;
 
+/*
+ * demo.cc:
+ * 示例流量发生器实现文件。
+ * 它不属于 fabric 核心逻辑，但经常用于验证 PemBiu 和互连模型是否打通。
+ */
+
 const static uint BAND_WIDTH = 128;
 
 // ----------------------------------------------

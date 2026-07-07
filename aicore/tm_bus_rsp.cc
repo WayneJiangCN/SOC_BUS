@@ -8,6 +8,7 @@ using namespace tm_engine;
 namespace
 {
 
+/* 响应路径也用 pld 指针地址标记本拍移动，避免同拍多次回推。 */
 uintptr_t
 packet_tag(p_tm_pld_t pld)
 {
@@ -19,6 +20,7 @@ packet_tag(p_tm_pld_t pld)
 void
 TmBusFabric::recv_target_rsps()
 {
+    /* 从所有 target 收响应，并先注入 ring 回程网络。 */
     for (uint32_t target = 0; target < cfg_->num_targets; ++target) {
         recv_target_wr_req_rsp(target);
         recv_target_wr_dat_rsp(target);
@@ -31,7 +33,7 @@ TmBusFabric::recv_target_rsps()
 void
 TmBusFabric::recv_target_rd_rsp(uint32_t target_id, uint32_t lane)
 {
-
+    /* 读响应从目标节点进入 ring 回程子网。 */
     uint32_t chan = static_cast<uint32_t>(aic_req_type_t::RD_REQ) + lane;
     auto inf = v_target_inf_[target_id];
     auto node_fifo = get_ring_rd_rsp_fifo(topology_.target_node(target_id), lane);
@@ -51,7 +53,11 @@ TmBusFabric::recv_target_rd_rsp(uint32_t target_id, uint32_t lane)
 void
 TmBusFabric::recv_target_wr_req_rsp(uint32_t target_id)
 {
-
+    /*
+     * WR_REQ_RSP 有两层含义：
+     * 1. 它本身是回给 master 的响应
+     * 2. 它还会生成后续 WR_DAT 所需的 grant
+     */
     uint32_t chan = static_cast<uint32_t>(aic_req_type_t::WR_REQ);
     auto inf = v_target_inf_[target_id];
     auto node_fifo = get_ring_wr_req_rsp_fifo(topology_.target_node(target_id));
@@ -112,6 +118,7 @@ TmBusFabric::advance_ring_rsps()
 void
 TmBusFabric::advance_ring_rd_rsps()
 {
+    /* 按 lane 分开推进读响应，避免多 lane 互相影响。 */
     std::unordered_set<uintptr_t> moved_tags;
 
     for (uint32_t node = 0; node < ring_node_count_; ++node) {
@@ -173,6 +180,7 @@ TmBusFabric::advance_ring_rd_rsps()
 void
 TmBusFabric::advance_ring_wr_req_rsps()
 {
+    /* 写请求响应回到源节点后，进入 master 的 WR_REQ_RSP FIFO。 */
     std::unordered_set<uintptr_t> moved_tags;
 
     for (uint32_t node = 0; node < ring_node_count_; ++node) {
@@ -224,6 +232,7 @@ TmBusFabric::advance_ring_wr_req_rsps()
 void
 TmBusFabric::advance_ring_wr_dat_rsps()
 {
+    /* 写完成响应回到源节点后，写事务才真正结束。 */
     std::unordered_set<uintptr_t> moved_tags;
 
     for (uint32_t node = 0; node < ring_node_count_; ++node) {
@@ -287,7 +296,11 @@ TmBusFabric::send_master_rsps()
 void
 TmBusFabric::send_master_rd_rsp(uint32_t master_port, uint32_t lane)
 {
-
+    /*
+     * 送回读响应时，同时：
+     * 1. 更新多拍响应计数
+     * 2. 释放 target 侧读 slot
+     */
     auto fifo = m_rd_rsp_fifo_[master_port][lane];
     if (fifo->empty()) {
         return;
@@ -326,7 +339,7 @@ TmBusFabric::send_master_rd_rsp(uint32_t master_port, uint32_t lane)
 void
 TmBusFabric::send_master_wr_req_rsp(uint32_t master_port)
 {
-
+    /* WR_REQ_RSP 回到 BIU 后，BIU 才能继续组织 WR_DAT。 */
     auto fifo = m_wr_req_rsp_fifo_[master_port];
     if (fifo->empty()) {
         return;
@@ -352,7 +365,7 @@ TmBusFabric::send_master_wr_req_rsp(uint32_t master_port)
 void
 TmBusFabric::send_master_wr_dat_rsp(uint32_t master_port)
 {
-
+    /* WR_DAT_RSP 是写事务的最终完成点，并在这里释放写 slot。 */
     auto fifo = m_wr_dat_rsp_fifo_[master_port];
     if (fifo->empty()) {
         return;

@@ -4,6 +4,8 @@
 
 using namespace std;
 
+/* 当前仲裁器主要是能力预留，后续可继续扩展到更复杂的局部仲裁。 */
+
 void
 TmBusArbiter::config(p_tm_bus_cfg_t cfg)
 {
@@ -27,7 +29,7 @@ TmBusArbiter::pick_master(aic_req_type_t req_type, uint32_t target_id,
                           const std::vector<uint8_t>& eligible_mask,
                           uint32_t& winner)
 {
-
+    /* 候选集合由外部先算好，这里只负责在候选中挑一个赢家。 */
     winner = 0;
     if (cfg_->arbiter_type == tm_bus_arbiter_type_t::ISLIP_LIKE) {
         return pick_islip_like(req_type, target_id, eligible_mask, winner);
@@ -52,6 +54,7 @@ TmBusArbiter::pick_rr(aic_req_type_t req_type, uint32_t target_id,
                       const std::vector<uint8_t>& eligible_mask,
                       uint32_t& winner)
 {
+    /* 按 target 维度维护 RR 指针，避免所有 target 共用一个游标。 */
     auto* state = rr_state(req_type);
 
     uint32_t start = (*state)[target_id];
@@ -73,5 +76,6 @@ TmBusArbiter::pick_islip_like(aic_req_type_t req_type, uint32_t target_id,
                               const std::vector<uint8_t>& eligible_mask,
                               uint32_t& winner)
 {
+    /* 当前先退化成 RR，后续可以在这里替换成真正的 iSLIP-like 逻辑。 */
     return pick_rr(req_type, target_id, eligible_mask, winner);
 }

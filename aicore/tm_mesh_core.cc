@@ -5,6 +5,15 @@
 using namespace std;
 using namespace tm_engine;
 
+/*
+ * tm_mesh_core.cc
+ *
+ * 这里放 mesh 版本 fabric 的框架逻辑：
+ * - 配置与 router/FIFO 资源创建
+ * - reset / idle / tick
+ * - attach / bind
+ */
+
 TmMeshFabric::TmMeshFabric()
 {
 }
@@ -23,6 +32,7 @@ TmMeshFabric::~TmMeshFabric()
 void
 TmMeshFabric::config()
 {
+    /* 先配置 mesh 拓扑，再复用一层 bus_cfg 给 target 流控模块使用。 */
     topology_.config(cfg_);
 
     flow_ctrl_cfg_ = std::make_shared<tm_bus_cfg_t>();
@@ -77,6 +87,7 @@ TmMeshFabric::config()
 
     topology_.reset(cfg_->num_masters);
 
+    /* 为每个 master 创建入口接口与相关 FIFO。 */
     for (uint32_t i = 0; i < cfg_->num_masters; ++i) {
         auto master_inf = tm_make_com_inf(clk_, this->name() + "_master_inf" +
                                           std::to_string(i),
@@ -118,6 +129,7 @@ TmMeshFabric::config()
         m_wr_grant_fifo_.emplace_back();
     }
 
+    /* 为每个 target 创建本地 FIFO。 */
     for (uint32_t i = 0; i < cfg_->num_targets; ++i) {
         auto target_cfg = cfg_->targets[i];
 
@@ -141,6 +153,7 @@ TmMeshFabric::config()
                             target_cfg->wr_dat_fifo_depth));
     }
 
+    /* 为每个 router 节点创建 mesh 内部 request/response FIFO。 */
     mesh_rd_rsp_fifo_.resize(mesh_router_count_);
     for (uint32_t router = 0; router < mesh_router_count_; ++router) {
         mesh_rd_req_fifo_.push_back(
@@ -186,6 +199,7 @@ TmMeshFabric::build()
 void
 TmMeshFabric::reset()
 {
+    /* reset 要同时清空端点侧、mesh 内部和事务级全部状态。 */
     txn_ctx_.clear();
 
     for (auto& inf : v_master_inf_) {
@@ -344,6 +358,7 @@ TmMeshFabric::idle()
 void
 TmMeshFabric::tick()
 {
+    /* 与 ring 版本一致：优先处理回程，再推进新的去程请求。 */
     flow_ctrl_.update_tokens(time());
     recv_target_rsps();
     advance_mesh_rsps();
@@ -388,6 +403,7 @@ TmMeshFabric::attach_target(uint32_t idx, p_tm_mem_t mem)
 void
 TmMeshFabric::bind_master_id(uint32_t port_id, uint32_t mst_id)
 {
+    /* 让协议 master_id 与物理端口号解耦。 */
     topology_.bind_master_id(port_id, mst_id);
 }
 

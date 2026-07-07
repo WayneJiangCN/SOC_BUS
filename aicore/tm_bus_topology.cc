@@ -1,5 +1,15 @@
 #include "tm_bus_topology.h"
 
+/*
+ * tm_bus_topology.cc
+ *
+ * 负责 ring 版本的：
+ * - 配置期地址范围与 interleave 规则准备
+ * - 运行期 master_id 映射
+ * - addr -> target_id 解码
+ * - master/target -> ring node 映射
+ */
+
 namespace
 {
 
@@ -107,6 +117,7 @@ validate_cfg(const p_tm_bus_cfg_t& cfg)
 void
 TmBusTopology::config(p_tm_bus_cfg_t cfg)
 {
+    /* 配置阶段只做静态规则准备，不推进运行时状态。 */
     cfg_ = cfg;
     interleave_rules_.clear();
 
@@ -122,7 +133,7 @@ TmBusTopology::config(p_tm_bus_cfg_t cfg)
 void
 TmBusTopology::reset(uint32_t num_masters)
 {
-
+    /* 缺省情况下，port_id 和 mst_id 采用 1:1 映射。 */
     master_id_to_port_.clear();
     port_to_master_id_.assign(num_masters, 0);
     for (uint32_t i = 0; i < num_masters; ++i) {
@@ -134,7 +145,7 @@ TmBusTopology::reset(uint32_t num_masters)
 void
 TmBusTopology::bind_master_id(uint32_t port_id, uint32_t mst_id)
 {
-
+    /* 显式绑定后，后续响应回程会按 mst_id 找回 master 端口。 */
     auto it = master_id_to_port_.find(mst_id);
 
     uint32_t old_mst_id = port_to_master_id_[port_id];
@@ -162,7 +173,12 @@ TmBusTopology::find_master_port(uint32_t mst_id) const
 uint32_t
 TmBusTopology::decode_target(uint64_t addr) const
 {
-
+    /*
+     * decode 的层次：
+     * 1. 先按地址范围筛 target
+     * 2. 对共享地址域再按 interleave/hash 选 slice
+     * 3. 若无显式命中，再回落到 default target
+     */
     uint32_t default_target = 0;
     bool has_default = false;
     bool hit_explicit_range = false;

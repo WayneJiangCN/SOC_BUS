@@ -8,6 +8,7 @@ using namespace tm_engine;
 namespace
 {
 
+/* 用 pld 地址标记“本拍是否已在 mesh 中移动过一跳”。 */
 uintptr_t
 mesh_packet_tag(p_tm_pld_t pld)
 {
@@ -19,6 +20,7 @@ mesh_packet_tag(p_tm_pld_t pld)
 void
 TmMeshFabric::recv_master_reqs()
 {
+    /* 从所有 master 接口收包并写入 ingress FIFO。 */
     for (uint32_t master = 0; master < cfg_->num_masters; ++master) {
         recv_master_req(master, aic_req_type_t::WR_REQ);
         recv_master_req(master, aic_req_type_t::WR_DAT);
@@ -29,6 +31,7 @@ TmMeshFabric::recv_master_reqs()
 void
 TmMeshFabric::recv_master_req(uint32_t master_port, aic_req_type_t req_type)
 {
+    /* 新请求在这里建立 mesh 事务上下文。 */
     uint32_t chan = static_cast<uint32_t>(req_type);
     auto inf = v_master_inf_[master_port];
     auto fifo = get_master_fifo(master_port, req_type);
@@ -44,6 +47,7 @@ TmMeshFabric::recv_master_req(uint32_t master_port, aic_req_type_t req_type)
         auto key = make_txn_key(pld);
         auto it = txn_ctx_.find(key);
         if (req_type == aic_req_type_t::WR_DAT) {
+            /* WR_DAT 复用前面 WR_REQ 的上下文，不重复创建事务。 */
             if (it != txn_ctx_.end()) {
                 it->second.state = tm_mesh_txn_state_t::IN_INGRESS_FIFO;
             }
@@ -78,6 +82,7 @@ TmMeshFabric::inject_mesh_reqs()
 void
 TmMeshFabric::inject_mesh_req(uint32_t master_port, aic_req_type_t req_type)
 {
+    /* master ingress FIFO -> source router FIFO。 */
     auto master_fifo = get_master_fifo(master_port, req_type);
     auto router_id = topology_.master_node(master_port);
     auto mesh_fifo = get_mesh_req_fifo(router_id, req_type);
@@ -92,6 +97,7 @@ TmMeshFabric::inject_mesh_req(uint32_t master_port, aic_req_type_t req_type)
         }
 
         if (req_type == aic_req_type_t::WR_DAT) {
+            /* 写数据必须先匹配好 grant，才能注入 mesh。 */
             if (m_wr_grant_fifo_[master_port].empty()) {
                 return;
             }
@@ -120,6 +126,11 @@ TmMeshFabric::advance_mesh_reqs()
 void
 TmMeshFabric::advance_mesh_req_type(aic_req_type_t req_type)
 {
+    /*
+     * 每拍只做单跳前推：
+     * - 到达 dst_node 后进入 target local FIFO
+     * - 否则按 compute_next_node() 决定下一跳
+     */
     std::unordered_set<uintptr_t> moved_tags;
     std::vector<tm_time_t>* next_hop = nullptr;
     if (req_type == aic_req_type_t::RD_REQ) {
@@ -149,6 +160,7 @@ TmMeshFabric::advance_mesh_req_type(aic_req_type_t req_type)
         }
 
         if (router == ctx_it->second.dst_node) {
+            /* 已到目的 router，不再继续在 mesh 内前推。 */
             auto target_fifo = get_target_fifo(ctx_it->second.target_id, req_type);
             if (target_fifo->full()) {
                 continue;
@@ -197,6 +209,7 @@ TmMeshFabric::send_target_reqs()
 void
 TmMeshFabric::send_target_req(uint32_t target_id, aic_req_type_t req_type)
 {
+    /* target local FIFO -> target 接口，正式受端点流控约束。 */
     auto target_fifo = get_target_fifo(target_id, req_type);
     if (target_fifo->empty()) {
         return;
@@ -237,6 +250,7 @@ TmMeshFabric::send_target_req(uint32_t target_id, aic_req_type_t req_type)
         }
 
         if (req_type == aic_req_type_t::WR_DAT) {
+            /* WR_DAT 发出后，grant 才真正被消费。 */
             uint32_t master_port = topology_.find_master_port(pld->mst_id);
             if (!m_wr_grant_fifo_[master_port].empty()) {
                 m_wr_grant_fifo_[master_port].pop_front();

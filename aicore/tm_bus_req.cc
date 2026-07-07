@@ -8,6 +8,7 @@ using namespace tm_engine;
 namespace
 {
 
+/* 用 pld 指针地址标记“本拍是否已经移动过”，避免同拍连跳两次。 */
 uintptr_t
 packet_tag(p_tm_pld_t pld)
 {
@@ -19,6 +20,7 @@ packet_tag(p_tm_pld_t pld)
 void
 TmBusFabric::recv_master_reqs()
 {
+    /* 从所有 master 接口收包，并按事务类型拆入入口 FIFO。 */
     for (uint32_t master = 0; master < cfg_->num_masters; ++master) {
         recv_master_req(master, aic_req_type_t::WR_REQ);
         recv_master_req(master, aic_req_type_t::WR_DAT);
@@ -29,7 +31,7 @@ TmBusFabric::recv_master_reqs()
 void
 TmBusFabric::recv_master_req(uint32_t master_port, aic_req_type_t req_type)
 {
-
+    /* 吸收一个 master 通道上的请求，同时建立或更新事务上下文。 */
     uint32_t chan = static_cast<uint32_t>(req_type);
     auto inf = v_master_inf_[master_port];
     auto fifo = get_master_fifo(master_port, req_type);
@@ -46,6 +48,7 @@ TmBusFabric::recv_master_req(uint32_t master_port, aic_req_type_t req_type)
         auto key = make_txn_key(pld);
         auto it = txn_ctx_.find(key);
         if (req_type == aic_req_type_t::WR_DAT) {
+            /* WR_DAT 复用同一笔写事务前面 WR_REQ 创建的上下文。 */
             it->second.state = tm_bus_txn_state_t::IN_INGRESS_FIFO;
         } else {
             TmBusTxnCtx ctx;
@@ -78,6 +81,7 @@ TmBusFabric::inject_ring_reqs()
 void
 TmBusFabric::inject_ring_req(uint32_t master_port, aic_req_type_t req_type)
 {
+    /* master ingress FIFO -> source ring node FIFO。 */
     auto master_fifo = get_master_fifo(master_port, req_type);
     auto node_id = topology_.master_node(master_port);
     auto ring_fifo = get_ring_req_fifo(node_id, req_type);
@@ -89,6 +93,7 @@ TmBusFabric::inject_ring_req(uint32_t master_port, aic_req_type_t req_type)
         auto ctx_it = txn_ctx_.find(key);
 
         if (req_type == aic_req_type_t::WR_DAT) {
+            /* 写数据必须先等对应 grant 到队头，才能注入 ring。 */
             if (m_wr_grant_fifo_[master_port].empty()) {
                 return;
             }
@@ -117,6 +122,11 @@ TmBusFabric::advance_ring_reqs()
 void
 TmBusFabric::advance_ring_req_type(aic_req_type_t req_type)
 {
+    /*
+     * ring 每拍最多单跳前推：
+     * - 到达目的节点就落到 target local FIFO
+     * - 否则转发到 next_ring_node()
+     */
     std::unordered_set<uintptr_t> moved_tags;
     std::vector<tm_time_t>* next_hop = nullptr;
     if (req_type == aic_req_type_t::RD_REQ) {
@@ -143,6 +153,7 @@ TmBusFabric::advance_ring_req_type(aic_req_type_t req_type)
         auto ctx_it = txn_ctx_.find(key);
 
         if (node == ctx_it->second.dst_node) {
+            /* 命中目标节点后，不再继续占用 ring。 */
             auto target_fifo = get_target_fifo(ctx_it->second.target_id, req_type);
             if (target_fifo->full()) {
                 continue;
@@ -186,7 +197,7 @@ TmBusFabric::send_target_reqs()
 void
 TmBusFabric::send_target_req(uint32_t target_id, aic_req_type_t req_type)
 {
-
+    /* target local FIFO -> target 接口，正式受 target credit/token 约束。 */
     auto target_fifo = get_target_fifo(target_id, req_type);
     if (target_fifo->empty()) {
         return;
@@ -225,6 +236,7 @@ TmBusFabric::send_target_req(uint32_t target_id, aic_req_type_t req_type)
         }
 
         if (req_type == aic_req_type_t::WR_DAT) {
+            /* 写数据真正发出后，grant 才被消耗掉。 */
             uint32_t master_port = topology_.find_master_port(pld->mst_id);
             m_wr_grant_fifo_[master_port].pop_front();
         }

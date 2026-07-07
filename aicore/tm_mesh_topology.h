@@ -9,6 +9,11 @@
 #include "tm_bus_interleave.h"
 #include "tm_mesh_types.h"
 
+/*
+ * TmMeshTopology:
+ * 负责 mesh 版本的地址解码、master_id 绑定、router 网格尺寸计算，
+ * 以及确定性坐标路由的下一跳选择。
+ */
 class TmMeshTopology
 {
   public:

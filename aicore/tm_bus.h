@@ -17,6 +17,15 @@
 #include "tm_inf.h"
 #include "tm_que.h"
 
+/*
+ * TmBusFabric:
+ * 事务级 ring NoC-lite 主模块。
+ *
+ * 保持 PemBiu / TmMem 接口不变，在内部用单向 ring 模拟多跳传输。
+ * 主要数据流拆分为：
+ * - 请求去程：master -> ring -> target
+ * - 响应回程：target -> ring -> master
+ */
 class TmBusFabric : public tm_engine::TmModule
 {
   public:
@@ -40,25 +49,31 @@ class TmBusFabric : public tm_engine::TmModule
     virtual void bind_master_id(uint32_t port_id, uint32_t mst_id);
 
   public:
+    /* 基本实例上下文。 */
     tm_engine::p_tm_clk_t clk_ = nullptr;
     p_tm_bus_cfg_t cfg_ = nullptr;
 
+    /* 上游/下游接口。 */
     std::vector<p_tm_com_inf_t> v_master_inf_;
     std::vector<p_tm_com_inf_t> v_target_inf_;
 
   protected:
+    /* master 入口 FIFO。 */
     std::vector<p_tm_com_que_t> m_rd_req_fifo_;
     std::vector<p_tm_com_que_t> m_wr_req_fifo_;
     std::vector<p_tm_com_que_t> m_wr_dat_fifo_;
 
+    /* target 本地 FIFO。 */
     std::vector<p_tm_com_que_t> t_rd_req_fifo_;
     std::vector<p_tm_com_que_t> t_wr_req_fifo_;
     std::vector<p_tm_com_que_t> t_wr_dat_fifo_;
 
+    /* master 回包 FIFO。 */
     std::vector<std::vector<p_tm_com_que_t>> m_rd_rsp_fifo_;
     std::vector<p_tm_com_que_t> m_wr_req_rsp_fifo_;
     std::vector<p_tm_com_que_t> m_wr_dat_rsp_fifo_;
 
+    /* ring 节点内部 FIFO。 */
     std::vector<p_tm_com_que_t> n_rd_req_fifo_;
     std::vector<p_tm_com_que_t> n_wr_req_fifo_;
     std::vector<p_tm_com_que_t> n_wr_dat_fifo_;
@@ -66,9 +81,11 @@ class TmBusFabric : public tm_engine::TmModule
     std::vector<p_tm_com_que_t> n_wr_req_rsp_fifo_;
     std::vector<p_tm_com_que_t> n_wr_dat_rsp_fifo_;
 
+    /* 写事务 grant/DBID 跟踪。 */
     std::vector<std::deque<TmBusGrant>> m_wr_grant_fifo_;
     std::unordered_map<uint64_t, TmBusTxnCtx> txn_ctx_;
 
+    /* 端点发送与 ring 逐跳节流时间。 */
     std::vector<tm_engine::tm_time_t> next_rd_issue_time_;
     std::vector<tm_engine::tm_time_t> next_wr_req_issue_time_;
     std::vector<tm_engine::tm_time_t> next_wr_dat_issue_time_;
@@ -84,9 +101,11 @@ class TmBusFabric : public tm_engine::TmModule
     std::vector<tm_engine::tm_time_t> next_n_wr_req_rsp_hop_time_;
     std::vector<tm_engine::tm_time_t> next_n_wr_dat_rsp_hop_time_;
 
+    /* ring 拓扑基本参数。 */
     uint32_t ring_node_count_ = 0;
     uint32_t ring_link_latency_ = 1;
 
+    /* 子模块：拓扑、端点流控、仲裁扩展点。 */
     TmBusTopology topology_;
     TmBusFlowCtrl flow_ctrl_;
     TmBusArbiter arbiter_;

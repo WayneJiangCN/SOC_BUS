@@ -5,6 +5,17 @@
 using namespace std;
 using namespace tm_engine;
 
+/*
+ * tm_bus_flow_ctrl.cc
+ *
+ * 这是当前 ring/mesh 共用的 target 级事务流控实现。
+ * 它不模拟 router/link credit，只模拟：
+ * - target slot credit
+ * - target bandwidth token
+ * - target busy 周期
+ * - outstanding 驱动的热点惩罚
+ */
+
 namespace
 {
 
@@ -25,6 +36,7 @@ TmBusFlowCtrl::config(p_tm_bus_cfg_t cfg)
 {
     cfg_ = cfg;
 
+    /* 每个 target 独立维护自己的 slot/token/outstanding 状态。 */
     rd_slot_credit_.assign(cfg_->num_targets, 0);
     wr_slot_credit_.assign(cfg_->num_targets, 0);
     acc_slot_credit_.assign(cfg_->num_targets, 0);
@@ -40,7 +52,7 @@ TmBusFlowCtrl::config(p_tm_bus_cfg_t cfg)
 void
 TmBusFlowCtrl::reset()
 {
-
+    /* reset 时把所有 target 的资源恢复到满额状态。 */
     for (uint32_t i = 0; i < cfg_->num_targets; ++i) {
         auto target_cfg = cfg_->targets[i];
         rd_slot_credit_[i] = target_cfg->rd_slot_credit_max;
@@ -56,7 +68,7 @@ TmBusFlowCtrl::reset()
 void
 TmBusFlowCtrl::update_tokens(tm_time_t now)
 {
-
+    /* token 周期性恢复，近似表达 target 可持续提供的带宽。 */
     for (uint32_t i = 0; i < cfg_->num_targets; ++i) {
         auto target_cfg = cfg_->targets[i];
 
@@ -83,7 +95,12 @@ bool
 TmBusFlowCtrl::can_send_to_target(uint32_t target_id, aic_req_type_t req_type,
                                   p_tm_pld_t pld) const
 {
-
+    /*
+     * 三类事务的约束不同：
+     * - RD_REQ：既要读 slot，也要读带宽
+     * - WR_REQ：只占写 slot，不占写数据带宽
+     * - WR_DAT：主要受写带宽限制
+     */
     auto size = pld->size;
     if (req_type == aic_req_type_t::RD_REQ) {
         return acc_slot_credit_[target_id] > 0 &&
@@ -105,7 +122,7 @@ TmBusFlowCtrl::wr_grant_match(uint32_t grant_target_id, uint32_t grant_gid,
                               uint32_t target_id, p_tm_pld_t pld,
                               bool strict_order) const
 {
-
+    /* 严格模式下，WR_DAT 必须与 grant 队头 gid 完整匹配。 */
     if (strict_order && grant_gid != pld->gid) {
         return false;
     }
@@ -117,7 +134,10 @@ TmBusFlowCtrl::consume_target_credit(uint32_t target_id,
                                      aic_req_type_t req_type,
                                      p_tm_pld_t pld)
 {
-
+    /*
+     * consume 发生在事务真正发给 target 之后。
+     * WR_REQ 和 WR_DAT 分开扣，是为了保留两阶段写事务语义。
+     */
     auto size = pld->size;
     if (req_type == aic_req_type_t::RD_REQ) {
         acc_slot_credit_[target_id]--;
@@ -142,7 +162,7 @@ TmBusFlowCtrl::consume_target_credit(uint32_t target_id,
 void
 TmBusFlowCtrl::release_target_credit(uint32_t target_id, aic_req_type_t req_type)
 {
-
+    /* release 发生在响应真正完成后，而不是在请求发出时。 */
     auto target_cfg = cfg_->targets[target_id];
 
     acc_slot_credit_[target_id] =
@@ -167,6 +187,7 @@ TmBusFlowCtrl::calc_issue_busy_cycles(uint32_t target_id, p_tm_pld_t pld) const
 {
     auto target_cfg = cfg_->targets[target_id];
 
+    /* 请求方向 busy 周期 = 固定前端/转发延迟 + payload 周期 + 热点惩罚。 */
     return std::max<uint32_t>(
         1,
         target_cfg->frontend_latency + target_cfg->forward_latency +
@@ -180,6 +201,7 @@ TmBusFlowCtrl::calc_rsp_busy_cycles(uint32_t target_id, p_tm_pld_t pld) const
 {
     auto target_cfg = cfg_->targets[target_id];
 
+    /* 响应方向和请求方向一样，只是使用 response_latency。 */
     return std::max<uint32_t>(
         1,
         target_cfg->response_latency + target_cfg->header_latency +
@@ -196,6 +218,7 @@ TmBusFlowCtrl::target_outstanding(uint32_t target_id) const
 uint32_t
 TmBusFlowCtrl::calc_payload_cycles(uint32_t width, uint32_t size) const
 {
+    /* 用 width 粗粒度折算 payload 需要多少拍传完。 */
     return std::max<uint32_t>(1, (size + width - 1) / width);
 }
 
@@ -204,6 +227,7 @@ TmBusFlowCtrl::calc_hotspot_penalty(uint32_t target_id) const
 {
     auto target_cfg = cfg_->targets[target_id];
 
+    /* 当 outstanding 超阈值后，附加固定惩罚来放大热点效应。 */
     if (target_cfg->hotspot_penalty == 0) {
         return 0;
     }

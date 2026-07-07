@@ -9,6 +9,10 @@
 #include "tm_bus_interleave.h"
 #include "tm_bus_types.h"
 
+/*
+ * TmBusTopology:
+ * 负责 ring 版本的地址解码、master_id 映射和 ring 节点编号映射。
+ */
 class TmBusTopology
 {
   public:

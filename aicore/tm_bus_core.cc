@@ -5,6 +5,19 @@
 using namespace std;
 using namespace tm_engine;
 
+/*
+ * tm_bus_core.cc
+ *
+ * 这里放 ring 版本 fabric 的框架逻辑：
+ * - 资源创建
+ * - reset / idle / tick
+ * - attach / bind
+ *
+ * 真正的数据流推进见：
+ * - tm_bus_req.cc
+ * - tm_bus_rsp.cc
+ */
+
 TmBusFabric::TmBusFabric()
 {
 }
@@ -23,7 +36,7 @@ TmBusFabric::~TmBusFabric()
 void
 TmBusFabric::config()
 {
-
+    /* 先配置子模块，再根据拓扑创建 ring 需要的所有 FIFO 和时间状态。 */
     topology_.config(cfg_);
     flow_ctrl_.config(cfg_);
     arbiter_.config(cfg_);
@@ -72,6 +85,7 @@ TmBusFabric::config()
 
     topology_.reset(cfg_->num_masters);
 
+    /* 为每个 master 创建入口接口、入口 FIFO 和回包 FIFO。 */
     for (uint32_t i = 0; i < cfg_->num_masters; ++i) {
         auto master_inf = tm_make_com_inf(clk_, this->name() + "_master_inf" +
                                           std::to_string(i),
@@ -118,6 +132,7 @@ TmBusFabric::config()
         m_wr_grant_fifo_.emplace_back();
     }
 
+    /* 为每个 target 创建本地接收 FIFO。 */
     for (uint32_t i = 0; i < cfg_->num_targets; ++i) {
         auto target_cfg = cfg_->targets[i];
 
@@ -143,6 +158,7 @@ TmBusFabric::config()
         t_wr_dat_fifo_.push_back(wr_dat_fifo);
     }
 
+    /* 为 ring 中每个节点创建在途 request/response FIFO。 */
     n_rd_rsp_fifo_.resize(ring_node_count_);
     for (uint32_t node = 0; node < ring_node_count_; ++node) {
         auto rd_req_fifo = tm_make_com_que(clk_,
@@ -192,7 +208,7 @@ TmBusFabric::build()
 void
 TmBusFabric::reset()
 {
-
+    /* reset 要把所有可见状态清空，避免事务跨次运行残留。 */
     txn_ctx_.clear();
 
     for (auto& inf : v_master_inf_) {
@@ -353,6 +369,12 @@ TmBusFabric::idle()
 void
 TmBusFabric::tick()
 {
+    /*
+     * 固定按“回程优先、去程其次”的顺序推进：
+     * 1. 更新 target token
+     * 2. 处理回包并尽快释放 credit
+     * 3. 再接收并推进新的请求
+     */
     flow_ctrl_.update_tokens(time());
     recv_target_rsps();
     advance_ring_rsps();
@@ -397,6 +419,7 @@ TmBusFabric::attach_target(uint32_t idx, p_tm_mem_t mem)
 void
 TmBusFabric::bind_master_id(uint32_t port_id, uint32_t mst_id)
 {
+    /* 让物理端口号和协议里的 master_id 解耦。 */
     topology_.bind_master_id(port_id, mst_id);
 }
 
