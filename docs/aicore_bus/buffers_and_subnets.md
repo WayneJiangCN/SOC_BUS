@@ -2,102 +2,151 @@
 
 ## 1. 文档范围
 
-本文档描述 `TmBusFabric` 中的 buffering 组织和 subnet 思想，重点包括：
+本文档描述当前 ring 版本 `TmBusFabric` 中所有关键 FIFO 的放置位置，以及请求/响应逻辑子网的组织方式。
 
-- ingress buffer
-- target-side buffer
-- response buffer
-- grant buffer
-- 逻辑 subnet 划分
+## 2. 为什么 ring 版本更依赖显式 FIFO
 
-## 2. Buffer 设计原则
+在中心总线版本里，很多阻塞还能被理解为“抢不到 target”。
 
-当前 fabric 采用显式 buffering，而不是把所有输运行为藏在一次函数调用里。
+到了 ring 版本，阻塞来源明显变多：
 
-当前主要 buffer 分组包括：
+- source 节点注入失败
+- 中途某个 node 的下一跳满
+- target 本地 FIFO 满
+- 响应回程节点堵塞
+- master 侧响应 FIFO 满
 
-1. master ingress FIFO
-2. target-side request FIFO
-3. master-side response FIFO
-4. per-master write grant FIFO
+因此 ring 版本必须把各层 FIFO 显式放出来，否则很难解释 backpressure 是如何传播的。
 
-这是当前实现中最明显吸收 GPGPU-Sim `LOCAL_XBAR` 思想的地方。
+## 3. 当前 FIFO 分层
 
-## 3. Master Ingress FIFO
+当前 ring 版本里，FIFO 可以分成五层。
 
-master ingress FIFO 用于吸收上游 `PemBiu` 发来的流量。
+### 3.1 Master Ingress FIFO
 
-它的作用有两个：
+每个 master 都有三类本地入口 FIFO：
 
-1. 解耦 master 时序与 target 竞争
-2. 让上游 backpressure 清晰可见、可统计
+- `m_rd_req_fifo_`
+- `m_wr_req_fifo_`
+- `m_wr_dat_fifo_`
 
-每类请求都有独立的 ingress FIFO。
+作用是：
 
-## 4. Target FIFO
+- 吸收 `PemBiu` 的本地突发
+- 解耦 source 端时序与 ring 注入时机
 
-事务经过仲裁后，会进入 target 侧 FIFO。
+### 3.2 Ring Request FIFO
 
-这些队列代表的是：
+每个 ring node 都维护请求侧 FIFO：
 
-- 每个 target 的局部竞争
-- 仲裁层与真正 target issue 之间的明确交接点
+- `n_rd_req_fifo_`
+- `n_wr_req_fifo_`
+- `n_wr_dat_fifo_`
 
-这和 gem5 `XBar` 里按 target 组织竞争层的思想是对齐的。
+这表示：
 
-## 5. Response FIFO
+- ring 上每个节点都能暂存路过的请求
+- 请求不再是“看见目的端就瞬间到达”，而是要经过显式中间缓存
 
-响应不会在 target 收到后立刻直接同步回 master，而是先进入显式 response FIFO。
+### 3.3 Target Local FIFO
 
-这样做的好处是：
+每个 target 仍然保留本地接收 FIFO：
 
-1. master 侧反压可见
-2. 响应路径时序可控
-3. 多 lane 读响应可以清楚拆开
+- `t_rd_req_fifo_`
+- `t_wr_req_fifo_`
+- `t_wr_dat_fifo_`
 
-## 6. Grant FIFO
+作用是：
 
-写命令响应会生成 grant 信息。
+- 让网络到达和 target 实际发射解耦
+- 保持 target credit/busy time 模型清晰
 
-这部分被显式保存在 grant FIFO 中，因为 `WR_DAT` 后续还可能继续被以下因素阻塞：
+### 3.4 Ring Response FIFO
 
-- 仲裁
-- bandwidth token 不足
-- target busy time
-- 下游接口反压
+每个 ring node 都维护响应侧 FIFO：
 
-如果没有 grant FIFO，写数据阶段就会丢失顺序上下文。
+- `n_rd_rsp_fifo_`
+- `n_wr_req_rsp_fifo_`
+- `n_wr_dat_rsp_fifo_`
 
-## 7. Subnet 视角
+注意读响应还按 lane 再拆一层：
 
-当前 fabric 没有像 GPGPU-Sim `LOCAL_XBAR` 那样显式实例化多个物理子网对象，但已经吸收了 **逻辑 subnet 分离** 的思想。
+- `n_rd_rsp_fifo_[node][lane]`
 
-当前逻辑上至少区分：
+这表示响应已经被建模成真正的回程网络流量。
 
-- request-side progression
-- response-side progression
+### 3.5 Master Response FIFO
 
-而在 request-side 内部，又继续区分：
+每个 master 侧还维护本地响应 FIFO：
+
+- `m_rd_rsp_fifo_`
+- `m_wr_req_rsp_fifo_`
+- `m_wr_dat_rsp_fifo_`
+
+它们负责：
+
+- 吸收 ring 回程流量
+- 与 `PemBiu` 的接收节奏解耦
+
+## 4. Grant FIFO
+
+除了请求/响应 FIFO 之外，当前实现还保留一个非常关键的专用 FIFO：
+
+- `m_wr_grant_fifo_`
+
+它不是网络缓存，而是写事务上下文缓存。
+
+作用是：
+
+- 保存 `WR_REQ_RSP` 产生的 grant/DBID
+- 约束后续 `WR_DAT` 只能在 grant 匹配时注入 ring
+
+如果没有这层 FIFO，写请求和写数据之间的协议关系就会丢失。
+
+## 5. 当前逻辑子网
+
+当前版本虽然没有把 `ReqSubnet`、`RspSubnet` 写成显式类对象，但逻辑上已经形成了两个子网：
+
+### 5.1 Request Subnet
+
+请求子网承载：
 
 - `RD_REQ`
 - `WR_REQ`
 - `WR_DAT`
 
-这意味着虽然代码里还没有独立的 `ReqSubnet` / `ReplySubnet` 类，但设计思路上已经具备了这种分离。
+### 5.2 Response Subnet
 
-## 8. 后续演进方向
+响应子网承载：
 
-如果 V2 需要更强地借鉴 `LOCAL_XBAR`，下一步可以考虑：
+- `RD_RSP`
+- `WR_REQ_RSP`
+- `WR_DAT_RSP`
 
-1. 显式引入 request subnet 对象
-2. 显式引入 reply subnet 对象
-3. 为不同 subnet 分别维护仲裁器和 timing 状态
+所以当前版本已经不是“所有包共用一套单队列”的结构，而是：
 
-当前代码拆分已经为这种演进预留了空间。
+```text
+请求侧一套 ring FIFO
+响应侧一套 ring FIFO
+```
 
-## 9. 当前代码映射
+## 6. 为什么请求和响应必须分开
 
-- `aicore/tm_bus_core.cc`
-- `aicore/tm_bus_req.cc`
-- `aicore/tm_bus_rsp.cc`
-- `aicore/tm_bus_types.h`
+如果 ring 里把请求和响应全揉在一起，会有几个明显问题：
+
+1. 写数据流量容易压住响应回程。
+2. 读响应容易被请求洪峰拖慢。
+3. 更容易出现严重 HOL blocking。
+4. 后面很难演进到更真实的 NoC 子网模型。
+
+因此当前版本虽然还是轻量模型，但已经有意识地把 request 和 response 分成两张逻辑网。
+
+## 7. 当前版本的限制
+
+当前版本的 subnet 仍然是逻辑分离，不是完整物理子网对象：
+
+- 还没有独立 `ReqSubnet` 类
+- 还没有独立 `RspSubnet` 类
+- 还没有 per-subnet 独立 router 模块
+
+但从结构上讲，已经为后面继续细化留好了空间。

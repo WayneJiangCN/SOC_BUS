@@ -2,115 +2,124 @@
 
 ## 1. 文档范围
 
-本文档定义 `TmBusFabric` 的仲裁方式，主要覆盖：
+本文档描述 ring 版本 `TmBusFabric` 中“仲裁”这一概念当前是如何变化的。
 
-- 仲裁粒度
-- 仲裁状态组织
-- 当前 round-robin 行为
-- 后续更强仲裁器的扩展点
+这里最重要的结论是：
 
-## 2. 基本设计选择
+**ring 版本已经不再采用旧总线版本那种中心式 `per-target` 仲裁作为主路径核心。**
 
-当前 fabric 采用 **per-target**、**per-traffic-class** 的仲裁方式。
+## 2. 从旧总线版本到 ring 版本的变化
 
-这也是借鉴 gem5 `XBar` 的关键点。
+旧版本更像：
 
-换句话说，fabric 不是“一次只允许系统里一个请求前进”，而是：
+```text
+master ingress
+  -> per-target 选人
+  -> target FIFO
+  -> target
+```
 
-- 每个 target 有自己的仲裁域
-- 每类事务有自己的前进节奏
+其核心矛盾是：
 
-## 3. 仲裁域划分
+- 多个 master 同时抢同一个 target
 
-当前仲裁同时按以下两个维度拆开：
+而 ring 版本更像：
 
-1. `target_id`
-2. 请求类型
+```text
+master ingress
+  -> source node 注入 ring
+  -> ring 逐跳前推
+  -> target node
+  -> target FIFO
+  -> target
+```
 
-请求类型包括：
+它的核心矛盾已经转成：
 
-- `RD_REQ`
-- `WR_REQ`
-- `WR_DAT`
+- 当前节点能不能继续往下一跳送
+- 当前目标 FIFO 是否还有空间
 
-这意味着每个 target 会分别维护：
+## 3. 当前主路径中的“仲裁”
 
-- 读命令的仲裁状态
-- 写命令的仲裁状态
-- 写数据的仲裁状态
+当前 ring 主路径里的仲裁更加弱化，主要表现为以下几种局部顺序规则：
 
-## 4. 当前仲裁模块
+1. 每个 FIFO 先看队头。
+2. 每个 node 对某一类 traffic 一次只前推一个队头包。
+3. 如果下一跳 FIFO 满，当前 node 本拍就停住。
+4. 如果当前 node 已到达目的节点，则优先尝试进入本地 target FIFO 或 master response FIFO。
 
-仲裁器已经被抽成独立模块：
+所以当前版本的“仲裁”本质上更接近：
 
-- `aicore/tm_bus_arbiter.h`
-- `aicore/tm_bus_arbiter.cc`
+```text
+FIFO 顺序 + 局部可前推判断
+```
 
-这样 `TmBusFabric` 主类可以更专注于：
+而不是独立的中心式调度器。
 
-- 队列搬移
-- 事务状态机
-- 响应闭环
+## 4. 为什么会这样
 
-而不必继续把仲裁状态和仲裁策略都堆在主类内部。
+这是 ring 拓扑带来的自然变化。
 
-## 5. 当前策略
+在中心总线里，问题是“谁先占中心资源”。
 
-默认策略是 target-local round-robin。
+在 ring 里，问题变成了：
 
-仲裁器为以下每种组合维护一个轮转指针：
+- 这个包是否已经到达目的节点
+- 没到的话下一跳能不能走
 
-- target
-- 请求类型
+因此主路径调度天然从“全局抢占”变成了“分布式逐跳前推”。
 
-它的优点是：
+## 5. 请求路径中的局部顺序
 
-1. 简单
-2. 易调试
-3. 可解释性强
-4. 适合 V1 bring-up
+当前请求路径的主要顺序是：
 
-## 6. 从 LOCAL_XBAR 借来的点
+1. `recv_master_reqs()` 按 `WR_REQ -> WR_DAT -> RD_REQ` 顺序收包。
+2. `inject_ring_reqs()` 按 `RD_REQ -> WR_REQ -> WR_DAT` 顺序尝试把本地 FIFO 注入 ring。
+3. `advance_ring_reqs()` 分别推进三类请求 ring FIFO。
+4. `send_target_reqs()` 再按 `RD_REQ -> WR_REQ -> WR_DAT` 依次尝试发给 target。
 
-GPGPU-Sim `LOCAL_XBAR` 对当前仲裁层的影响主要有两点：
+这里没有单独的中心仲裁器对象参与主路径选人。
 
-1. 把仲裁器视为可替换的独立策略块
-2. 预留更强输出侧 grant 状态的扩展点
+## 6. 响应路径中的局部顺序
 
-当前代码里已经预留：
+响应路径同样采用局部队列顺序：
 
-- `tm_bus_arbiter_type_t`
-- `RR`
-- `ISLIP_LIKE`
+1. target 先把响应注入目标节点的响应 ring FIFO。
+2. ring 再逐跳回传。
+3. 到达 source node 后进入 master response FIFO。
+4. 最后再送回 `PemBiu`。
 
-其中 `ISLIP_LIKE` 当前仍是 V1 占位实现：
+其中读响应还会带 lane 维度：
 
-- 不实现完整 request / grant / accept 多轮握手
-- 只是保留“按输出维度维护 grant 状态”的结构扩展点
+- 每个 lane 独立 FIFO
+- 每个 lane 独立回送
 
-这样能在保持 ESL 简洁性的前提下，为后续增强仲裁器留接口。
+## 7. `tm_bus_arbiter` 当前的定位
 
-## 7. 仲裁资格条件
+`tm_bus_arbiter.h/.cc` 仍然保留在工程中，但在当前 ring 主路径里的定位已经变化：
 
-一个 master 只有在满足以下条件时，才有资格参与某个 target 的仲裁：
+- 它不再是主数据路径的核心依赖
+- 更像是保留的扩展点
 
-1. 对应 master FIFO 非空
-2. 队头事务解码后确实要去这个 target
-3. 如果是 `WR_DAT`，则 grant 队列头存在且匹配
+也就是说：
 
-仲裁阶段本身不检查：
+- 旧总线版本中，arbiter 是主路径核心
+- 当前 ring 版本中，arbiter 是保留模块，不是主路径核心
 
-- credit
-- bandwidth token
-- target busy time
+## 8. 为什么不直接删掉 arbiter
 
-这些限制是在后续 `send_target_req()` 阶段检查的。
+保留它有两个好处：
 
-这样可以把“选谁先上车”和“现在能不能开车”分开表达。
+1. 后面如果从 ring NoC-lite 往更复杂的 router 模型演进，可以直接在 router output arbitration 上复用这类模块化思路。
+2. 如果以后又需要某些 node-local 优先级、QoS 或虚拟子网仲裁，也有明确的挂载点。
 
-## 8. 当前代码映射
+## 9. 后续可演进方向
 
-- `aicore/tm_bus_arbiter.h`
-- `aicore/tm_bus_arbiter.cc`
-- `aicore/tm_bus_req.cc`
-- `aicore/tm_bus_types.h`
+如果后面要把 ring 继续往更真实的 NoC 推，可以考虑引入真正的 router 局部仲裁，例如：
+
+- input-buffer to output-port 的 RR
+- weighted RR
+- age-based priority
+- request/reply 分 subnet 后分别仲裁
+
+到那时，`tm_bus_arbiter` 才会重新进入主路径核心位置。

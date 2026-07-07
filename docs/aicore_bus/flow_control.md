@@ -2,132 +2,206 @@
 
 ## 1. 文档范围
 
-本文档定义 `TmBusFabric` 如何建模流控，重点覆盖：
+本文档描述当前 ring 版本 `TmBusFabric` 的流控方式。
 
-- slot credit
+当前流控不是单一机制，而是几层叠加：
+
+- FIFO 反压
+- target credit
 - bandwidth token
-- outstanding depth
-- busy time
-- hotspot penalty
+- issue/rsp busy time
+- ring hop latency
 
-## 2. 基本原则
+## 2. 当前版本的核心判断
 
-当前 fabric 使用的是 **transaction-level flow control**，而不是 flit-level credit loop。
+ring 版本里，一个事务能不能继续前进，取决于两个层面：
 
-它更接近：
+1. 网络层能不能走
+2. 目标端点能不能收
 
-- gem5 `XBar` 的 timing occupancy 思路
-- `TmMem` 现有的 credit / bandwidth 语义
+网络层主要看：
+
+- 下一个 ring FIFO 是否有空间
+- 当前 node 到下一跳的 hop 时间是否已满足
+
+目标端点主要看：
+
+- target credit 是否够
+- bandwidth token 是否够
+- target 当前是否处于 busy 时间窗内
+
+## 3. 这不是 Ruby/Garnet 式 credit
+
+当前 ring 版本很重要的一点是：
+
+**它已经有 ring 拓扑，但流控仍然是 target 级为主。**
+
+也就是说，当前 `flow_ctrl` 负责的是：
+
+- 终点 target 的资源准入
+- 事务级 outstanding 控制
+- 端点带宽限制
 
 而不是：
 
-- BookSim 风格的 router input/output credit
+- router input VC credit
+- hop-by-hop flit buffer credit
 
-## 3. 资源类型
+所以它和 Ruby/Garnet 的区别是：
 
-### 3.1 Slot Credit
+- 当前版本回答“目标端点还能不能收”
+- Ruby/Garnet 回答“下一跳 buffer 还有没有空位能收 flit”
 
-slot credit 表示 target 还可以接收多少在途事务。
+## 4. FIFO 反压
 
-当前模型区分三类限制：
+ring 版本里，FIFO 反压已经分布到多层：
 
-- aggregate transaction 数量
-- read transaction 数量
-- write transaction 数量
+- master ingress FIFO
+- ring request FIFO
+- target local FIFO
+- ring response FIFO
+- master response FIFO
+- per-master grant FIFO
 
-这样 target 可以同时表达：
+只要下一级 FIFO 满，上一级就不会继续前推。
 
-1. 总体占用压力
-2. 读路径压力
-3. 写路径压力
+这意味着当前 ring 已经具备了比较直观的 backpressure 链条。
 
-### 3.2 Bandwidth Token
+## 5. Target Credit
 
-bandwidth token 表示单位时间内可持续消耗的字节带宽额度。
+当前 target 级 credit 主要包括：
 
-当前分别维护：
+- `acc_slot_credit`
+- `rd_slot_credit`
+- `wr_slot_credit`
 
-- aggregate token
-- read token
-- write token
+其含义是：
 
-这些 token 按周期恢复，而不是每个字节都建模成 flit 级传输事件。
+- `acc_slot_credit` 约束总 outstanding 数
+- `rd_slot_credit` 约束读事务 outstanding 数
+- `wr_slot_credit` 约束写事务 outstanding 数
 
-## 4. 资源消耗规则
+当前 credit 的粒度是事务级，而不是 flit 级。
 
-### 4.1 读请求
+## 6. Bandwidth Token
 
-`RD_REQ` 会消耗：
+除了 slot credit 以外，当前还维护带宽 token：
 
-- aggregate slot credit
-- read slot credit
-- aggregate bandwidth token
-- read bandwidth token
+- `acc_bw_token`
+- `rd_bw_token`
+- `wr_bw_token`
 
-### 4.2 写命令
+它们用于表达：
 
-`WR_REQ` 会消耗：
+- 单位时间内目标端点可消耗的总带宽
+- 读带宽预算
+- 写带宽预算
 
-- aggregate slot credit
-- write slot credit
+这些 token 按周期恢复，而不是在 ring 上逐 hop 回传。
 
-它**不会**立即消耗写带宽 token，因为真正的数据字节发生在 `WR_DAT` 阶段。
+## 7. 不同请求的资源消耗
 
-### 4.3 写数据
+当前资源消耗规则仍然保留旧事务总线时期的语义：
 
-`WR_DAT` 会消耗：
+### 7.1 `RD_REQ`
 
-- aggregate bandwidth token
-- write bandwidth token
+消耗：
 
-它不会重新申请新的写 slot，而是复用 `WR_REQ` 阶段已经占住的写事务槽位。
+- `acc_slot_credit`
+- `rd_slot_credit`
+- `acc_bw_token`
+- `rd_bw_token`
 
-## 5. 资源释放规则
+### 7.2 `WR_REQ`
 
-### 5.1 读事务释放
+消耗：
 
-读 slot 在读响应真正开始回送到 master 时释放。
+- `acc_slot_credit`
+- `wr_slot_credit`
 
-对 V1 来说，这是一个合理的 transaction-level 近似，因为此时 target 已经开始真正完成这笔读事务。
+它不立即消耗写带宽，因为真正数据还没发。
 
-### 5.2 写事务释放
+### 7.3 `WR_DAT`
 
-写 slot 只在 `WR_DAT_RSP` 时释放。
+消耗：
+
+- `acc_bw_token`
+- `wr_bw_token`
+
+它复用 `WR_REQ` 已经占住的写事务槽位，不再重复申请写 slot。
+
+## 8. Credit 释放时机
+
+### 8.1 读事务
+
+读事务在响应真正回送到 master 的过程中释放 read slot。
+
+### 8.2 写事务
+
+写事务只在 `WR_DAT_RSP` 完成时释放 write slot。
 
 原因是：
 
-- 仅收到 `WR_REQ_RSP` 只表示写命令阶段结束
-- 并不表示写数据已经完成
+- `WR_REQ_RSP` 只表示写请求阶段被 target 接受
+- 并不表示整个写事务已经完成
 
-只有把 slot 生命周期绑定到 `WR_DAT_RSP`，写事务建模才完整。
+因此写事务的生命周期必须绑定到 `WR_DAT_RSP`。
 
-## 6. Busy Time
+## 9. Busy Time
 
-当前 fabric 通过以下几个量统一折算 target 侧 busy time：
+当前版本还对 target 端口占用时间做了显式建模。
 
-- frontend latency
-- forward latency
-- response latency
-- header latency
-- `size / width` 对应的 payload cycles
-- hotspot penalty
+主要通过以下量计算：
 
-这部分是当前实现里最接近 gem5 `XBar` 的时延抽象。
+- `frontend_latency`
+- `forward_latency`
+- `response_latency`
+- `header_latency`
+- `width` 与 `size` 推导出的 payload 周期
+- `hotspot_penalty`
 
-## 7. Outstanding Depth
+这部分仍然保持了 gem5 `XBar` 风格的粗粒度时延建模思路。
 
-每个 target 都维护 outstanding depth。
+## 10. Ring Hop Latency
 
-它的作用包括：
+ring 版本新增了一层网络级延迟：
 
-- 粗粒度拥塞信号
-- hotspot penalty 输入
-- 调试和性能统计指标
+- `ring_link_latency`
 
-这刻意保持为粗粒度近似，不扩展成完整 NoC 排队网络。
+每次从一个 ring node 前推到下一跳时，都会受这个 hop 延迟约束。
 
-## 8. 当前代码映射
+当前实现方式是：
 
-- `aicore/tm_bus_flow_ctrl.h`
-- `aicore/tm_bus_flow_ctrl.cc`
-- `aicore/tm_bus_types.h`
+- 每个 node、每个 traffic class 维护一个“下一次可前推时间”
+- 未到时刻时，该 node 本拍不能继续把对应包送往下一跳
+
+这让 ring 版本具备了最基础的逐跳传播时延。
+
+## 11. Outstanding
+
+当前 `target_outstanding` 仍然是 target 级统计量。
+
+它的用途包括：
+
+- 表达 target 压力
+- 驱动 `hotspot_penalty`
+- 作为性能统计基础
+
+注意：
+
+这不是网络中每跳 buffer occupancy 的完整替代物。
+
+## 12. 当前模型边界
+
+当前流控最重要的边界是：
+
+- 已经有 ring 拓扑
+- 但尚未进入 Ruby/Garnet 式 hop-by-hop credit 模型
+
+因此可以把当前版本理解成：
+
+```text
+ring 网络拓扑 + target 级事务流控
+```
+
+而不是完整网络流控。

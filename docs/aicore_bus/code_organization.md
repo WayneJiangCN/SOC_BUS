@@ -2,166 +2,180 @@
 
 ## 1. 文档范围
 
-本文档说明 `TmBusFabric` 相关源码如何按职责拆分，以及这种拆分如何对应到设计专题。
+本文档说明当前 ring 版本 `TmBusFabric` 的源码如何按职责拆分，以及每个文件在整体设计中的位置。
 
-## 2. 当前文件布局
+## 2. 当前主文件
 
-当前 `aicore/` 下采用扁平布局，相关文件如下：
+当前 ring 版本的主要代码文件包括：
 
-- `tm_bus_types.h`
-- `tm_bus.h`
-- `tm_bus_core.cc`
-- `tm_bus_req.cc`
-- `tm_bus_rsp.cc`
-- `tm_bus_topology.h`
-- `tm_bus_topology.cc`
-- `tm_bus_interleave.h`
-- `tm_bus_interleave.cc`
-- `tm_bus_flow_ctrl.h`
-- `tm_bus_flow_ctrl.cc`
-- `tm_bus_arbiter.h`
-- `tm_bus_arbiter.cc`
+- `BUS/aicore/tm_bus_types.h`
+- `BUS/aicore/tm_bus.h`
+- `BUS/aicore/tm_bus_core.cc`
+- `BUS/aicore/tm_bus_topology.h`
+- `BUS/aicore/tm_bus_topology.cc`
+- `BUS/aicore/tm_bus_interleave.h`
+- `BUS/aicore/tm_bus_interleave.cc`
+- `BUS/aicore/tm_bus_req.cc`
+- `BUS/aicore/tm_bus_rsp.cc`
+- `BUS/aicore/tm_bus_flow_ctrl.h`
+- `BUS/aicore/tm_bus_flow_ctrl.cc`
+- `BUS/aicore/tm_bus_arbiter.h`
+- `BUS/aicore/tm_bus_arbiter.cc`
 
-对当前仓库规模来说，这种布局仍然可接受，因为：
-
-- 总线相关文件数量还不算多
-- 文件名已经能清楚表达职责
-- 本地跳转和阅读成本仍然较低
-
-## 3. 按职责划分
+## 3. 各文件职责
 
 ### 3.1 `tm_bus_types.h`
 
-存放：
+负责集中定义：
 
 - 配置结构
-- 枚举类型
+- 事务状态枚举
+- interleave 类型
 - grant 结构
-- transaction context 结构
+- `TmBusTxnCtx`
+
+ring 版本中最重要的变化在这里体现为：
+
+- 新增 `IN_REQ_RING`
+- 新增 `IN_RSP_RING`
+- 新增 `src_node`
+- 新增 `dst_node`
+- 新增 `ring_req_fifo_depth`
+- 新增 `ring_rsp_fifo_depth`
+- 新增 `ring_link_latency`
 
 ### 3.2 `tm_bus.h`
 
-存放：
+负责声明 `TmBusFabric` 主类，以及所有主要成员。
 
-- `TmBusFabric` 主类声明
-- 生命周期接口
-- attach 接口
-- 主类拥有的核心成员
+ring 版本里，这里最值得关注的是：
+
+- ring request FIFO 成员
+- ring response FIFO 成员
+- 每类 ring hop time 成员
+- `inject_ring_req`
+- `advance_ring_req_type`
+- `advance_ring_rd_rsps`
+- `advance_ring_wr_req_rsps`
+- `advance_ring_wr_dat_rsps`
 
 ### 3.3 `tm_bus_core.cc`
 
-存放：
+负责：
 
-- 构造和析构
 - `config / build / reset / idle`
-- attach 逻辑
-- `tick()` 主调度顺序
+- master/target attach
+- ring FIFO 创建
+- 主 `tick()` 调度顺序
 
-### 3.4 `tm_bus_req.cc`
+当前 ring 版本的 `tick()` 顺序是：
 
-存放：
+1. `update_tokens`
+2. `recv_target_rsps`
+3. `advance_ring_rsps`
+4. `send_master_rsps`
+5. `recv_master_reqs`
+6. `inject_ring_reqs`
+7. `advance_ring_reqs`
+8. `send_target_reqs`
 
-- `master` 请求接收
-- `master ingress FIFO` 入队
-- `per-target` 仲裁入口
-- 向 `target` 发请求
+这已经很好地体现了“先收回程，再回送，再收新请求，再推进请求”的 ring 调度逻辑。
 
-### 3.5 `tm_bus_rsp.cc`
+### 3.4 `tm_bus_topology.h/.cc`
 
-存放：
+负责：
 
-- `target` 响应接收
-- grant / DBID 管理
-- 向 `master` 回响应
-- 事务回收
+- `master_id <-> port_id` 映射
+- 地址解码
+- default target
+- target 选择
+- ring 节点映射
 
-### 3.6 `tm_bus_topology.*`
+ring 版本新增的重点接口是：
 
-存放：
+- `ring_node_count()`
+- `master_node()`
+- `target_node()`
+- `next_ring_node()`
 
-- `master_id <-> master_port` 映射
-- 地址解码主流程
-- `default target` 回退逻辑
+### 3.5 `tm_bus_interleave.h/.cc`
 
-### 3.7 `tm_bus_interleave.*`
+负责 interleave 算法本身。
 
-存放：
+当前 ring 版本没有改变这些算法，只改变了它们在整体系统中的位置：
 
-- `interleave` 策略基类
-- `LINEAR` 子类
-- `XOR_HASH` 子类
-- 策略工厂函数
+- 先用 interleave 选 target
+- 再把 target 映射到 ring 节点
 
-这部分的目标是把“共享地址空间下如何选 slice”的算法从 `decode_target()` 主流程里剥离出来。
+### 3.6 `tm_bus_req.cc`
 
-### 3.8 `tm_bus_flow_ctrl.*`
+负责请求路径。
 
-存放：
+当前 ring 版本里，这个文件的职责已经变成四层：
 
-- `slot credit`
-- `bandwidth token`
-- `busy time`
-- `outstanding` 统计
-- `hotspot penalty`
+1. 从 master inf 收包
+2. 写入 master ingress FIFO
+3. 从 source node 注入 request ring
+4. 在 ring 上逐跳前推
+5. 到达目的 target node 后进入 target FIFO
+6. 最终发给 target inf
 
-### 3.9 `tm_bus_arbiter.*`
+这就是 ring 版本最核心的请求主路径文件。
 
-存放：
+### 3.7 `tm_bus_rsp.cc`
 
-- `per-target` 仲裁状态
-- 当前 `RR` 策略
-- `ISLIP_LIKE` 扩展点
+负责响应路径。
 
-## 4. 这样拆分的原因
+当前 ring 版本里，这个文件对应：
 
-这套拆法综合吸收了两类参考实现的优点。
+1. 从 target inf 收响应
+2. 从 target node 注入 response ring
+3. 在 ring 上逐跳回传
+4. 到达 source node 后进入 master response FIFO
+5. 最终发回 master inf
+6. 完成 credit 释放和事务回收
 
-### 4.1 来自 gem5 XBar 的影响
+它和 `tm_bus_req.cc` 一起构成完整的双向事务闭环。
 
-- 拓扑是一个独立主题
-- 流控是一个独立主题
-- 仲裁是一个独立主题
-- `fabric` 主类更像调度骨架，而不是所有逻辑都堆在一起
+### 3.8 `tm_bus_flow_ctrl.h/.cc`
 
-### 4.2 来自 GPGPU-Sim LOCAL_XBAR 的影响
+负责：
 
-- buffer 组织是显式可见的
-- arbiter 可以独立替换
-- 后续可以继续往 `request / reply subnet` 方向演进
+- target credit
+- bandwidth token
+- outstanding
+- busy time
+- hotspot penalty
 
-## 5. 与设计文档的映射关系
+这个模块在 ring 版本仍然很重要，因为当前流控还没有切到 Ruby/Garnet 式 hop-by-hop credit。
 
-- `topology.md` -> `tm_bus_topology.*` + `tm_bus_interleave.*`
-- `transactions.md` -> `tm_bus_req.cc` + `tm_bus_rsp.cc` + `tm_bus_types.h`
-- `flow_control.md` -> `tm_bus_flow_ctrl.*`
-- `arbitration.md` -> `tm_bus_arbiter.*` + `tm_bus_req.cc`
-- `buffers_and_subnets.md` -> `tm_bus_core.cc` + `tm_bus_req.cc` + `tm_bus_rsp.cc`
+### 3.9 `tm_bus_arbiter.h/.cc`
 
-这种一一对应关系是刻意设计的，后续如果继续扩展模块，建议尽量保持。
+当前仍保留在仓库中，但定位已经变化。
 
-## 6. 后续可选的目录层次化
+它现在更像：
 
-如果后面文件继续增多，可以再切换成分层目录结构，例如：
+- 兼容旧总线时期的模块拆分
+- 未来 router 局部仲裁的保留扩展点
 
-```text
-aicore/bus/
-  tm_bus.h
-  tm_bus_types.h
-  core/
-    tm_bus_core.cc
-    tm_bus_req.cc
-    tm_bus_rsp.cc
-  topology/
-    tm_bus_topology.h
-    tm_bus_topology.cc
-    tm_bus_interleave.h
-    tm_bus_interleave.cc
-  flow/
-    tm_bus_flow_ctrl.h
-    tm_bus_flow_ctrl.cc
-  arb/
-    tm_bus_arbiter.h
-    tm_bus_arbiter.cc
-```
+而不是当前 ring 主路径的核心依赖。
 
-但在当前阶段，继续使用扁平布局仍然是合理的。
+## 4. 为什么这样拆分是合理的
+
+当前拆分方式有两个优点：
+
+1. 它保持了你们现有 `tm_*` ESL 工程的直观性。
+2. 它又把 ring 拓扑、事务路径、流控、interleave 这些主题分清了。
+
+因此即使后面从 ring 演进到 mesh，也不需要推翻整个文件结构，只需要继续替换和细化某些局部模块。
+
+## 5. 后续演进建议
+
+如果后面继续做更真实的 NoC，建议优先沿着下面方向演进：
+
+1. 把 ring node/router 抽成独立对象。
+2. 把 request subnet 和 response subnet 抽成显式类。
+3. 把 `tm_bus_arbiter` 挂回 router output arbitration。
+4. 在 `tm_bus_flow_ctrl` 之外再增加 hop-by-hop credit 模块。
+
+当前这套代码拆分已经为这些方向留好了空间。

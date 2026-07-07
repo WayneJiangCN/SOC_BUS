@@ -2,128 +2,209 @@
 
 ## 1. 文档范围
 
-本文档定义 `TmBusFabric` 的事务视角，主要覆盖：
+本文档描述 ring 版本 `TmBusFabric` 中事务的种类、状态和生命周期。
 
-- 请求类型
-- 响应类型
-- 事务 key
-- 生命周期状态
-- 两阶段写事务语义
+当前模型保留三类请求：
 
-## 2. 事务类别
+- `RD_REQ`
+- `WR_REQ`
+- `WR_DAT`
 
-当前 fabric 显式建模三类请求：
+同时保留三类返回路径：
 
-1. `RD_REQ`
-2. `WR_REQ`
-3. `WR_DAT`
+- `RD_RSP`
+- `WR_REQ_RSP`
+- `WR_DAT_RSP`
 
-这是遵循现有 `PemBiu` 协议接口，而不是强行把所有请求压成一个统一 packet。
+## 2. 为什么仍然保留三类请求
 
-## 3. 为什么写路径要拆开
+当前 ring 版本虽然把中心总线改成了多跳互连，但并没有改变 AI Core 侧事务协议本身。
 
-写路径被刻意建模成两阶段事务：
+`PemBiu` 这边仍然是：
 
-1. 发出 `WR_REQ`
-2. 收到 `WR_REQ_RSP / grant / DBID`
-3. 发出 `WR_DAT`
-4. 收到 `WR_DAT_RSP`
+- 读请求单独发起
+- 写请求先发 `WR_REQ`
+- 收到 grant/DBID 后再发 `WR_DAT`
 
-这样做非常重要，因为当前 AI Core 侧协议本身就是这么暴露的。
+因此 ring 网络只负责转发这些事务，不应把它们粗暴揉成一种统一 packet 语义。
 
-如果过早把它们合并，会失去以下建模能力：
+## 3. 事务唯一标识
 
-- 命令和数据解耦
-- grant 顺序约束
-- 命令阶段与数据阶段的独立反压
-- 正确的写 slot 生命周期
-
-## 4. 事务标识
-
-当前 fabric 使用：
+当前实现继续使用：
 
 - `mst_id`
 - `gid`
 
-作为主事务 key。
+共同组成事务 key。
 
-这个 key 能稳定贯穿以下阶段：
+在代码里：
 
-1. 上游请求进入 fabric
-2. 下游 target 发回响应
-3. 响应返回原始 master
-4. 查询事务上下文
+```text
+txn_key = (mst_id << 32) | gid
+```
 
-## 5. 事务上下文
+这张 key 用来贯穿：
 
-每笔在途事务可以拥有一条上下文记录，用于描述：
+1. 请求进入 ingress FIFO
+2. 请求注入 ring
+3. 请求到达 target
+4. 响应从 target 注入 ring
+5. 响应回到 master
+6. 事务 retire
 
-- 来源 master port
-- 目标 target
-- 请求类型
-- 当前事务状态
-- 请求大小
-- 发出时间
-- 响应计数信息
+## 4. 事务上下文
 
-这对以下场景尤其关键：
+每笔事务在 ring 版本里都挂一条上下文 `TmBusTxnCtx`。
 
-- 读响应被拆成多个分片
-- 两阶段写事务
-- 资源释放时刻控制
+当前上下文里最关键的字段包括：
 
-## 6. 生命周期状态
+- `master_port`
+- `target_id`
+- `src_node`
+- `dst_node`
+- `req_type`
+- `state`
+- `size`
+- `issue_time`
+- `rsp_expected`
+- `rsp_seen`
+- `slot_released`
 
-当前状态机包含以下状态：
+ring 版本相比旧总线版本多了：
+
+- `src_node`
+- `dst_node`
+
+这两个字段让事务能在网络层逐跳前进，而不是只记录端点信息。
+
+## 5. 当前主要状态
+
+当前 ring 版本常用状态包括：
 
 - `ALLOCATED`
 - `IN_INGRESS_FIFO`
+- `IN_REQ_RING`
 - `IN_TARGET_FIFO`
-- `WAIT_WR_REQ_RSP`
-- `GRANT_READY`
-- `WAIT_WR_DAT_RSP`
 - `WAIT_RD_RSP`
+- `WAIT_WR_REQ_RSP`
+- `WAIT_WR_DAT_RSP`
+- `IN_RSP_RING`
 - `DONE`
 
-这些状态反映的是 **协议进度**，而不是单纯反映“在某个队列里”。
+需要注意的是：
 
-## 7. 读事务生命周期
+- `IN_REQ_RING` 表示请求已经进入 ring，正在多跳前推
+- `IN_RSP_RING` 表示响应已经进入 ring，正在多跳返回
 
-读路径如下：
+这是 ring 版本相对旧总线版本最明显的状态机变化。
 
-1. 上游请求进入 fabric
-2. 进入 master ingress FIFO
-3. 通过 per-target 仲裁进入 target FIFO
-4. 发给 target
-5. 一个或多个读响应返回
-6. 释放读 slot
-7. 事务完成回收
+## 6. 读事务路径
 
-如果下游把一个读请求拆成多个响应分片，则上下文会维护：
+当前 `RD_REQ` 的生命周期可以写成：
 
-- `rsp_expected`
-- `rsp_seen`
+```text
+master inf
+  -> master ingress FIFO
+  -> source master node 注入 ring
+  -> ring 逐跳前推
+  -> 到达 dst target node
+  -> target FIFO
+  -> target inf
+  -> target 返回读响应
+  -> target node 注入响应 ring
+  -> ring 逐跳回传
+  -> source master node
+  -> master response FIFO
+  -> master inf
+```
 
-只有当预期分片数全部收到后，事务才真正 retire。
+在事务状态上，大致对应：
 
-## 8. 写事务生命周期
+```text
+IN_INGRESS_FIFO
+  -> IN_REQ_RING
+  -> IN_TARGET_FIFO
+  -> WAIT_RD_RSP
+  -> IN_RSP_RING
+  -> DONE
+```
 
-写路径如下：
+## 7. 写事务路径
 
-1. `WR_REQ` 进入 ingress FIFO
-2. `WR_REQ` 被仲裁并发往 target
-3. target 返回 `WR_REQ_RSP`
-4. fabric 记录 grant 信息
-5. 对应的 `WR_DAT` 获得继续发送资格
-6. `WR_DAT` 被仲裁并发往 target
-7. target 返回 `WR_DAT_RSP`
-8. 释放写 slot
-9. 事务完成回收
+当前写事务仍然分两段。
 
-这样设计能保证命令阶段和数据阶段被视为一个完整的生命周期，而不是两笔无关事务。
+完整路径是：
 
-## 9. 当前代码映射
+```text
+WR_REQ
+  -> ingress FIFO
+  -> 请求 ring
+  -> target
+  -> WR_REQ_RSP
+  -> 响应 ring
+  -> master
+  -> grant FIFO 就绪
+  -> WR_DAT
+  -> ingress FIFO
+  -> 请求 ring
+  -> target
+  -> WR_DAT_RSP
+  -> 响应 ring
+  -> master
+```
 
-- `aicore/tm_bus_types.h`
-- `aicore/tm_bus_req.cc`
-- `aicore/tm_bus_rsp.cc`
+对应状态大致是：
+
+```text
+WR_REQ:
+IN_INGRESS_FIFO
+  -> IN_REQ_RING
+  -> IN_TARGET_FIFO
+  -> WAIT_WR_REQ_RSP
+  -> IN_RSP_RING
+
+WR_DAT:
+IN_INGRESS_FIFO
+  -> IN_REQ_RING
+  -> IN_TARGET_FIFO
+  -> WAIT_WR_DAT_RSP
+  -> IN_RSP_RING
+  -> DONE
+```
+
+## 8. WR_DAT 为什么要等 grant
+
+ring 版本没有改变写协议的这个基本约束：
+
+- `WR_DAT` 不能仅因为自己在 FIFO 里就直接上网
+- 它必须先匹配 `WR_REQ_RSP` 产生的 grant
+
+因此当前实现里：
+
+- `WR_REQ_RSP` 到达 target 后会先生成 grant
+- grant 进入 `m_wr_grant_fifo_[master]`
+- 只有 grant 匹配成功，`WR_DAT` 才允许从 master 侧注入 ring
+
+也就是说，ring 网络改变了路径，不改变写协议阶段关系。
+
+## 9. 响应返回
+
+当前响应不再从 target 直接同步回 master，而是：
+
+1. 先进入 target 节点的响应 ring FIFO
+2. 再沿 ring 逐跳回到 `src_node`
+3. 再进入 master 侧本地响应 FIFO
+4. 最后送回 `PemBiu`
+
+因此 ring 版本里，响应已经成为真正的网络事务，而不只是 target 完成后的局部动作。
+
+## 10. 当前模型边界
+
+当前事务模型仍然是 packet 级，而不是 flit 级：
+
+- 一个 `p_tm_pld_t` 代表一个完整事务包
+- 不拆 header flit / data flit
+- 不做 VC
+- 不做 packet 内部逐拍切片
+
+这正是当前模型保持轻量化的关键边界。
