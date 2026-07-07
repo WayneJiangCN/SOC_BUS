@@ -69,10 +69,11 @@ class TmMeshFabric : public tm_engine::TmModule
     std::vector<p_tm_com_que_t> m_wr_req_rsp_fifo_;
     std::vector<p_tm_com_que_t> m_wr_dat_rsp_fifo_;
 
-    /* mesh 内部 router FIFO。 */
-    std::vector<p_tm_com_que_t> mesh_rd_req_fifo_;
-    std::vector<p_tm_com_que_t> mesh_wr_req_fifo_;
+    /* mesh request subnet：RD_REQ 和 WR_REQ 共用这一组 router FIFO。 */
+    std::vector<p_tm_com_que_t> mesh_req_fifo_;
+    /* mesh data subnet：WR_DAT 单独走写数据子网。 */
     std::vector<p_tm_com_que_t> mesh_wr_dat_fifo_;
+    /* mesh response subnet：响应仍按语义拆分。 */
     std::vector<std::vector<p_tm_com_que_t>> mesh_rd_rsp_fifo_;
     std::vector<p_tm_com_que_t> mesh_wr_req_rsp_fifo_;
     std::vector<p_tm_com_que_t> mesh_wr_dat_rsp_fifo_;
@@ -89,8 +90,8 @@ class TmMeshFabric : public tm_engine::TmModule
     std::vector<tm_engine::tm_time_t> next_wr_req_rsp_issue_time_;
     std::vector<tm_engine::tm_time_t> next_wr_dat_rsp_issue_time_;
 
-    std::vector<tm_engine::tm_time_t> next_mesh_rd_req_hop_time_;
-    std::vector<tm_engine::tm_time_t> next_mesh_wr_req_hop_time_;
+    /* request/data/response 三类子网各自维护逐跳节流时间。 */
+    std::vector<tm_engine::tm_time_t> next_mesh_req_hop_time_;
     std::vector<tm_engine::tm_time_t> next_mesh_wr_dat_hop_time_;
     std::vector<tm_engine::tm_time_t> next_mesh_rd_rsp_hop_time_;
     std::vector<tm_engine::tm_time_t> next_mesh_wr_req_rsp_hop_time_;
@@ -113,7 +114,8 @@ class TmMeshFabric : public tm_engine::TmModule
     void inject_mesh_reqs();
     void inject_mesh_req(uint32_t master_port, aic_req_type_t req_type);
     void advance_mesh_reqs();
-    void advance_mesh_req_type(aic_req_type_t req_type);
+    void advance_mesh_req_subnet();
+    void advance_mesh_wr_dat_subnet();
 
     void send_target_reqs();
     void send_target_req(uint32_t target_id, aic_req_type_t req_type);

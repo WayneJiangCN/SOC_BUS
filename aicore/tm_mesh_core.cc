@@ -64,8 +64,7 @@ TmMeshFabric::config()
     t_wr_req_fifo_.clear();
     t_wr_dat_fifo_.clear();
 
-    mesh_rd_req_fifo_.clear();
-    mesh_wr_req_fifo_.clear();
+    mesh_req_fifo_.clear();
     mesh_wr_dat_fifo_.clear();
     mesh_rd_rsp_fifo_.clear();
     mesh_wr_req_rsp_fifo_.clear();
@@ -78,8 +77,7 @@ TmMeshFabric::config()
     next_wr_req_rsp_issue_time_.assign(cfg_->num_masters, 0);
     next_wr_dat_rsp_issue_time_.assign(cfg_->num_masters, 0);
 
-    next_mesh_rd_req_hop_time_.assign(mesh_router_count_, 0);
-    next_mesh_wr_req_hop_time_.assign(mesh_router_count_, 0);
+    next_mesh_req_hop_time_.assign(mesh_router_count_, 0);
     next_mesh_wr_dat_hop_time_.assign(mesh_router_count_, 0);
     next_mesh_rd_rsp_hop_time_.assign(mesh_router_count_, 0);
     next_mesh_wr_req_rsp_hop_time_.assign(mesh_router_count_, 0);
@@ -156,12 +154,8 @@ TmMeshFabric::config()
     /* 为每个 router 节点创建 mesh 内部 request/response FIFO。 */
     mesh_rd_rsp_fifo_.resize(mesh_router_count_);
     for (uint32_t router = 0; router < mesh_router_count_; ++router) {
-        mesh_rd_req_fifo_.push_back(
-            tm_make_com_que(clk_, this->name() + "_mesh_rd_req_fifo_" +
-                                      std::to_string(router),
-                            cfg_->mesh_req_fifo_depth));
-        mesh_wr_req_fifo_.push_back(
-            tm_make_com_que(clk_, this->name() + "_mesh_wr_req_fifo_" +
+        mesh_req_fifo_.push_back(
+            tm_make_com_que(clk_, this->name() + "_mesh_req_fifo_" +
                                       std::to_string(router),
                             cfg_->mesh_req_fifo_depth));
         mesh_wr_dat_fifo_.push_back(
@@ -227,10 +221,7 @@ TmMeshFabric::reset()
     for (auto& q : t_wr_dat_fifo_) {
         q->clear();
     }
-    for (auto& q : mesh_rd_req_fifo_) {
-        q->clear();
-    }
-    for (auto& q : mesh_wr_req_fifo_) {
+    for (auto& q : mesh_req_fifo_) {
         q->clear();
     }
     for (auto& q : mesh_wr_dat_fifo_) {
@@ -269,10 +260,8 @@ TmMeshFabric::reset()
               next_wr_req_rsp_issue_time_.end(), 0);
     std::fill(next_wr_dat_rsp_issue_time_.begin(),
               next_wr_dat_rsp_issue_time_.end(), 0);
-    std::fill(next_mesh_rd_req_hop_time_.begin(),
-              next_mesh_rd_req_hop_time_.end(), 0);
-    std::fill(next_mesh_wr_req_hop_time_.begin(),
-              next_mesh_wr_req_hop_time_.end(), 0);
+    std::fill(next_mesh_req_hop_time_.begin(),
+              next_mesh_req_hop_time_.end(), 0);
     std::fill(next_mesh_wr_dat_hop_time_.begin(),
               next_mesh_wr_dat_hop_time_.end(), 0);
     std::fill(next_mesh_rd_rsp_hop_time_.begin(),
@@ -318,10 +307,7 @@ TmMeshFabric::idle()
     for (auto& q : t_wr_dat_fifo_) {
         ret = ret && q->empty();
     }
-    for (auto& q : mesh_rd_req_fifo_) {
-        ret = ret && q->empty();
-    }
-    for (auto& q : mesh_wr_req_fifo_) {
+    for (auto& q : mesh_req_fifo_) {
         ret = ret && q->empty();
     }
     for (auto& q : mesh_wr_dat_fifo_) {
@@ -434,13 +420,10 @@ TmMeshFabric::get_target_fifo(uint32_t target_id, aic_req_type_t req_type) const
 p_tm_com_que_t
 TmMeshFabric::get_mesh_req_fifo(uint32_t router_id, aic_req_type_t req_type) const
 {
-    if (req_type == aic_req_type_t::RD_REQ) {
-        return mesh_rd_req_fifo_[router_id];
+    if (req_type == aic_req_type_t::WR_DAT) {
+        return mesh_wr_dat_fifo_[router_id];
     }
-    if (req_type == aic_req_type_t::WR_REQ) {
-        return mesh_wr_req_fifo_[router_id];
-    }
-    return mesh_wr_dat_fifo_[router_id];
+    return mesh_req_fifo_[router_id];
 }
 
 p_tm_com_que_t
