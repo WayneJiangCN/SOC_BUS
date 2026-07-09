@@ -27,11 +27,13 @@ TmMeshTargetPort::config(const std::string& name, p_tm_clk_t clk,
     clk_ = clk;
     cfg_ = cfg;
 
+    // target 接口通道数 = WR_REQ / WR_DAT / RD_RSP lanes。
     uint32_t chan_num = static_cast<uint32_t>(aic_req_type_t::RD_REQ) +
                         rd_rsp_port_num;
     inf_ = tm_make_com_inf(clk_, name_ + "_inf", inf_depth);
     inf_->set_chan_num(chan_num);
 
+    // target-local queues：在真正发给 target 前先做本地缓存。
     rd_req_q_ = tm_make_com_que(clk_, name_ + "_rd_req_q",
                                 cfg_->rd_req_fifo_depth);
     wr_req_q_ = tm_make_com_que(clk_, name_ + "_wr_req_q",

@@ -1,164 +1,71 @@
-# Mesh Fabric 设计说明
+# Fabric 设计
 
-## 1. 设计目标
+## 顶层定位
 
-当前 `tm_mesh_*` 的设计目标是：
+`TmMeshFabric` 不是一个“大而全”的 bus 对象，而是整张 mesh-lite 网络的统一调度器。它自己不再保存每个 router 的内部 FIFO，而是把节点内状态下放到 `TmMeshRouter`，把边上的时延状态下放到 `TmMeshLink`。
 
-- 保留现有 `PemBiu / TmMem / tm_*` 接口风格
-- 在 transaction/message 级建模多跳 mesh
-- 保留 AI Core 风格的请求/响应协议
-- 让代码结构逐步接近 `Core - NI - Router - Link - Router - NI - Mem`
+## Fabric 负责什么
 
-因此当前实现不是“大 fabric 管一切”的结构，而是下面五类对象协作：
+- 持有 `master_nius_`
+- 持有 `routers_`
+- 持有 `links_`
+- 持有 `target_ports_`
+- 持有 `topology_`
+- 持有 `flow_ctrl_`
+- 持有共享事务表 `txn_ctx_`
 
-- `Tm_mesh_inf`
-- `TmMeshRouter`
-- `TmMeshLink`
-- `TmMeshTargetPort`
-- `TmMeshFabric`
+## Fabric 不负责什么
 
-## 2. 当前结构
+- 不直接管理 router 内部请求/响应队列
+- 不直接做 bus 风格全局仲裁
+- 不做 flit、VC、credit 级调度
 
-```text
-Core / BIU
-  -> Tm_mesh_inf
-  -> TmMeshRouter
-  -> TmMeshLink
-  -> TmMeshRouter
-  -> TmMeshTargetPort
-  -> TmMem / target
-```
+## 共享事务表
 
-## 3. 模块职责
+`txn_ctx_` 是 fabric 里最重要的共享状态。它记录：
 
-### 3.1 `Tm_mesh_inf`
+- 请求来自哪个 master
+- 目标 target 是谁
+- source node 和 destination node
+- 当前事务处于哪个阶段
+- 响应是否已经收齐
+- target 侧 slot 是否已经释放
 
-负责：
+它的作用不是替代包本身，而是把包之外的生命周期状态集中到一张表里，方便：
 
-- 上游 `bus_inf_`
-- 本地 request pending
-- 本地 grant
-- 本地 completion 跟踪
-- response 回送
+- 写事务两阶段配对
+- 回包归属判断
+- 目标侧 credit 释放
+- 完成态查询
 
-### 3.2 `TmMeshRouter`
+## 关键函数边界
 
-负责：
+- `recv_master_reqs()`
+  从 `bus_inf_` 吸收上游请求到 NIU 本地 pending。
+- `inject_mesh_reqs()`
+  把 NIU 本地 pending 请求送到 source router 的 `LOCAL` 输入口。
+- `advance_mesh_routers()`
+  推进整张网络内部的 router、output port 和 link。
+- `send_target_reqs()`
+  把目标 router 已经送到 target 本地队列的包真正发给 target。
+- `recv_target_rsps()`
+  从 target 接口收回响应，再注入目标 router。
 
-- 本节点 request queue
-- 本节点 write-data queue
-- 本节点 response queues
-- 同一输出口上的本地 RR 选择
+## 当前精度边界
 
-当前 router 是 **粗粒度 message-level switch**，不是 Garnet 式 router 微结构。
+当前模型保留了：
 
-### 3.3 `TmMeshLink`
+- 多跳路径差异
+- 端口级竞争
+- 链路逐拍发射
+- target 端瓶颈
+- 读/写/回包之间的共享竞争
 
-负责：
+当前模型没有做：
 
-- hop latency
-- 共享输出节流
-
-当前 link 是轻量链路模型，不做 credit。
-
-### 3.4 `TmMeshTargetPort`
-
-负责：
-
-- target-local request queues
-- 下游 `inf()` 接口
-- Router 到 target 的最后一跳交接
-
-### 3.5 `TmMeshFabric`
-
-负责：
-
-- 组织 NIU / Router / Link / TargetPort
-- 维护共享 `txn_ctx_`
-- 驱动 tick 调度
-- 调用 topology、route、flow control
-
-## 4. 请求路径
-
-```text
-upstream / API
-  -> Tm_mesh_inf pending
-  -> Fabric 注入
-  -> Router
-  -> Link
-  -> Router
-  -> TargetPort queue
-  -> target / TmMem
-```
-
-当前前向子网：
-
-- request subnet：`RD_REQ + WR_REQ`
-- data subnet：`WR_DAT`
-
-## 5. 响应路径
-
-```text
-target / TmMem
-  -> TmMeshTargetPort
-  -> Router response queues
-  -> Link
-  -> Router
-  -> Tm_mesh_inf
-  -> upstream
-```
-
-当前回程类型：
-
-- `RD_RSP`
-- `WR_REQ_RSP`
-- `WR_DAT_RSP`
-
-其中：
-
-- `WR_REQ_RSP` 回到 `Tm_mesh_inf` 后会生成本地 grant
-- `WR_DAT_RSP` 代表写事务最终完成
-
-## 6. 当前流控边界
-
-当前仍然以 **target-level transaction flow control** 为主：
-
-- target slot credit
-- target bandwidth token
-- target busy time
-- hotspot penalty
-
-Router / Link 当前只显式建模：
-
-- queue depth
-- 本地 RR 仲裁
-- shared output throttle
-- hop latency
-
-## 7. 为什么这样设计合适
-
-这版结构适合当前项目，是因为它同时满足：
-
-- 比单跳总线更接近训练类 AI 芯片的片上互连形态
-- 比 Garnet 轻，能和现有 `PemBiu / TmMem / tm_*` 对齐
-- 保留 AI Core 特有的写事务分阶段语义
-- 能独立跑 CA/ESL 多 core 用例
-
-## 8. 设计收敛建议
-
-当前结构已经足够支撑目标，建议在这里收住：
-
-- endpoint 保持 message-buffer 思路
-- router 保持粗粒度 RR + queue
-- link 保持 shared throttle + latency
-- flow control 继续以 target-level 为主
-
-不建议继续向下做：
-
-- flit
+- flit 拆分
 - VC
-- credit
-- router pipeline
-- 细 crossbar
+- credit return
+- 细粒度 crossbar pipeline
 
-这会让模型走向 NoC 微结构研究，而不是 SoC 级轻量互连模型。
+这使它更适合 SoC 级性能趋势建模，而不是 RTL 级互连复刻。

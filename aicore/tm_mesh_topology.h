@@ -10,9 +10,13 @@
 #include "tm_mesh_types.h"
 
 /*
- * TmMeshTopology:
- * 负责 mesh 版本的地址解码、master_id 绑定、router 网格尺寸计算，
- * 以及确定性坐标路由的下一跳选择。
+ * TmMeshTopology
+ *
+ * 负责整张 mesh 的静态拓扑和地址解码：
+ * 1. 根据 rows / cols 生成 router 网格规模。
+ * 2. 管理 master_port <-> master_id 的绑定。
+ * 3. 将地址 decode 到目标 target。
+ * 4. 给出某个节点的邻居，以及当前节点到目标节点的下一跳方向。
  */
 class TmMeshTopology
 {
@@ -29,8 +33,16 @@ class TmMeshTopology
     uint32_t rows() const;
     uint32_t cols() const;
 
+    /* master/target 在网格中的本地接入节点。 */
     uint32_t master_node(uint32_t master_port) const;
     uint32_t target_node(uint32_t target_id) const;
+
+    /* 查询某个节点在某个方向上是否存在邻居，以及邻居是谁。 */
+    bool has_neighbor(uint32_t node_id, TmMeshPortDir dir) const;
+    uint32_t neighbor(uint32_t node_id, TmMeshPortDir dir) const;
+
+    /* 从当前节点到目标节点的路由方向和下一跳节点。 */
+    TmMeshPortDir route_direction(uint32_t cur_node, uint32_t dst_node) const;
     uint32_t compute_next_node(uint32_t cur_node, uint32_t dst_node) const;
 
   private:

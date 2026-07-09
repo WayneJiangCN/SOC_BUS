@@ -1,100 +1,78 @@
 # 仲裁说明
 
-## 1. 文档范围
+## 仲裁发生在哪里
 
-本文档说明当前 mesh 主线里的仲裁逻辑放在哪里，以及 `tm_bus_arbiter` 为什么已经不在主路径上。
+当前 mesh 主线的仲裁不在 fabric 外层，也不在旧的 bus arbiter 中，而是在 `TmMeshRouter::pick_output_winner()`。
 
-## 2. 当前 mesh 主路径的仲裁位置
+fabric 的工作是：
 
-当前主路径已经不是早期“大 fabric 扫描一堆 FIFO”的模式，而是：
+- 收集候选
+- 按 output port 分组
+- 调 router 的 RR 选择器选 winner
+- 把 winner 发到 link 或本地出口
 
-```text
-NIU
-  -> Router local queues
-  -> Router per-output RR
-  -> Link shared throttle
-  -> 下一跳 Router / TargetPort / NIU
-```
+## 当前仲裁单位
 
-因此当前真正生效的仲裁点在：
+仲裁的单位是“某个输入 port 上、某个 traffic class 的队头包”。
 
-- `TmMeshRouter::pick_output_winner()`
-- `TmMeshLink::next_ready_time()`
-
-前者负责：
-
-- 同一个 router 节点里
-- 多个 traffic class 同时请求同一个输出口时
-- 选择这拍谁先走
-
-后者负责：
-
-- 这一拍链路是否可用
-- 输出资源是否需要节流
-
-## 3. 仲裁粒度
-
-当前是粗粒度 message/transaction 级仲裁，不是 Garnet 那种 flit/VC 级仲裁。
-
-当前粒度大致是：
-
-- request subnet：`RD_REQ + WR_REQ`
-- data subnet：`WR_DAT`
-- response subnet：
-  - `RD_RSP`
-  - `WR_REQ_RSP`
-  - `WR_DAT_RSP`
-
-Router 会从这些本地 queue 里收集候选，再按输出口做 RR 选择。
-
-## 4. 为什么不再用 fabric 级 `arbiter_`
-
-早期实现里，fabric 顶层保留过：
-
-- `TmBusArbiter arbiter_`
-
-但当前 mesh 主路径已经完成精简：
-
-- fabric 不再做单独的中心式仲裁
-- router 自己负责本节点的输出选择
-- link 自己负责共享节流
-
-因此 fabric 级 `arbiter_` 已经删除，不再是主路径依赖。
-
-## 5. `tm_bus_arbiter` 当前定位
-
-`tm_bus_arbiter.h/.cc` 仍然保留在工程中，但当前定位已经变成：
-
-- 历史遗留的公共模块
-- 未来如果要做更复杂 router arbitration 的扩展点
-
-它当前不是 mesh 主路径核心。
-
-## 6. 当前不是在做什么
-
-当前 mesh 主线没有做：
-
-- InputUnit / OutputUnit
-- SwitchAllocator
-- CrossbarSwitch
-- credit-based arbitration
-- flit/VC 级调度
-
-这些都是更接近 Garnet 的 NoC 微结构，不属于当前 SoC 级轻量 mesh-lite 模型的目标范围。
-
-## 7. 当前仲裁模型的一句话总结
-
-当前 mesh 仲裁可以概括成：
+因此候选的粒度是：
 
 ```text
-Router 负责本地 per-output RR
-Link 负责共享输出节流
-TargetPort 负责目标端口准入
+in_dir + traffic_class + front_packet
 ```
 
-这套机制足够支撑：
+而不是：
 
-- 多 core 并发
-- 多 target / 多 channel
-- 交织与热点瓶颈分析
-- SoC 级 CA/ESL 用例
+- 整个 router 一个总队列
+- 或 flit 级包片段
+
+## 当前约束
+
+当前实现固定有两层约束：
+
+- 每个 output port 每拍最多选 1 个 winner
+- 每个 input port 每拍最多成功发送 1 个单位
+
+这两条一起保证了：
+
+- 不会同一拍多个输入同时占用同一输出
+- 不会同一拍同一个输入同时去多个输出
+
+## 流量类之间的关系
+
+`REQ`、`WR_DAT`、`RSP` 当前共享同一类 output port 资源。
+
+这意味着：
+
+- 同一 output port、同一拍
+- 三者只能有一个 winner
+
+它带来的好处是：
+
+- 竞争关系清楚
+- 结构简单
+
+它带来的代价是：
+
+- 相比更细分的物理子网，会更保守一些
+
+## 统计信息怎么看
+
+router 提供每个输出口的 `OutputArbDebug`，可以直接看：
+
+- 这个输出口总共仲裁了多少次
+- 有多少次真的发生了竞争
+- 哪类流量最常出现在候选里
+- 哪类流量最常赢
+
+如果你在分析瓶颈，最有用的通常是：
+
+- `contention_rounds`
+- `req_wins`
+- `wr_dat_wins`
+- `rsp_wins`
+
+它们能直接回答：
+
+- 哪个方向在打架
+- 谁更常抢到带宽

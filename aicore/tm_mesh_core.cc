@@ -20,6 +20,7 @@ TmMeshFabric::TmMeshFabric(p_tm_clk_t clk, p_tm_mesh_cfg_t cfg)
 TmMeshFabric::~TmMeshFabric() {}
 
 void TmMeshFabric::config() {
+  // 先根据用户配置初始化拓扑和 target 侧 flow-control。
   topology_.config(cfg_);
 
   auto flow_ctrl_cfg = std::make_shared<tm_bus_cfg_t>();
@@ -32,6 +33,7 @@ void TmMeshFabric::config() {
   mesh_cols_ = topology_.cols();
   mesh_link_latency_ = cfg_->mesh_link_latency;
 
+  // 重新创建整张网络前，先清空旧对象。
   master_nius_.clear();
   routers_.clear();
   links_.clear();
@@ -43,11 +45,13 @@ void TmMeshFabric::config() {
 
   topology_.reset(cfg_->num_masters);
 
+  // 为每个 master 创建一个本地 NIU。
   for (uint32_t i = 0; i < cfg_->num_masters; ++i) {
     master_nius_.push_back(tm_make_mesh_inf(
         this->name() + "_master_niu" + std::to_string(i), clk_, i, cfg_));
   }
 
+  // 为每个 target 创建一个 target-side endpoint。
   for (uint32_t i = 0; i < cfg_->num_targets; ++i) {
     auto target_cfg = cfg_->targets[i];
     target_ports_.push_back(tm_make_mesh_target_port(
@@ -55,36 +59,49 @@ void TmMeshFabric::config() {
         cfg_->rd_rsp_port_num, cfg_->target_inf_depth));
   }
 
+  // 创建所有 router 节点。
   for (uint32_t router = 0; router < mesh_router_count_; ++router) {
     routers_.push_back(tm_make_mesh_router(
         this->name() + "_router_" + std::to_string(router), clk_, cfg_));
   }
 
+  // 按 topology 构建明确的 port-to-port 有向链路。
   for (uint32_t router = 0; router < mesh_router_count_; ++router) {
-    uint32_t row = router / mesh_cols_;
-    uint32_t col = router % mesh_cols_;
-
-    if (col + 1 < mesh_cols_) {
-      uint32_t east = router + 1;
-      links_[make_link_key(router, east)] =
+    if (topology_.has_neighbor(router, TmMeshPortDir::EAST)) {
+      uint32_t east = topology_.neighbor(router, TmMeshPortDir::EAST);
+      links_[make_link_key(router, TmMeshPortDir::EAST, east,
+                           TmMeshPortDir::WEST)] =
           tm_make_mesh_link(this->name() + "_link_" + std::to_string(router) +
-                                "_" + std::to_string(east),
-                            mesh_link_latency_);
-      links_[make_link_key(east, router)] =
-          tm_make_mesh_link(this->name() + "_link_" + std::to_string(east) +
-                                "_" + std::to_string(router),
-                            mesh_link_latency_);
+                                "_E_" + std::to_string(east) + "_W",
+                            mesh_link_latency_, router, TmMeshPortDir::EAST,
+                            east, TmMeshPortDir::WEST);
     }
-    if (row + 1 < mesh_rows_) {
-      uint32_t south = router + mesh_cols_;
-      links_[make_link_key(router, south)] =
+    if (topology_.has_neighbor(router, TmMeshPortDir::WEST)) {
+      uint32_t west = topology_.neighbor(router, TmMeshPortDir::WEST);
+      links_[make_link_key(router, TmMeshPortDir::WEST, west,
+                           TmMeshPortDir::EAST)] =
           tm_make_mesh_link(this->name() + "_link_" + std::to_string(router) +
-                                "_" + std::to_string(south),
-                            mesh_link_latency_);
-      links_[make_link_key(south, router)] =
-          tm_make_mesh_link(this->name() + "_link_" + std::to_string(south) +
-                                "_" + std::to_string(router),
-                            mesh_link_latency_);
+                                "_W_" + std::to_string(west) + "_E",
+                            mesh_link_latency_, router, TmMeshPortDir::WEST,
+                            west, TmMeshPortDir::EAST);
+    }
+    if (topology_.has_neighbor(router, TmMeshPortDir::SOUTH)) {
+      uint32_t south = topology_.neighbor(router, TmMeshPortDir::SOUTH);
+      links_[make_link_key(router, TmMeshPortDir::SOUTH, south,
+                           TmMeshPortDir::NORTH)] =
+          tm_make_mesh_link(this->name() + "_link_" + std::to_string(router) +
+                                "_S_" + std::to_string(south) + "_N",
+                            mesh_link_latency_, router, TmMeshPortDir::SOUTH,
+                            south, TmMeshPortDir::NORTH);
+    }
+    if (topology_.has_neighbor(router, TmMeshPortDir::NORTH)) {
+      uint32_t north = topology_.neighbor(router, TmMeshPortDir::NORTH);
+      links_[make_link_key(router, TmMeshPortDir::NORTH, north,
+                           TmMeshPortDir::SOUTH)] =
+          tm_make_mesh_link(this->name() + "_link_" + std::to_string(router) +
+                                "_N_" + std::to_string(north) + "_S",
+                            mesh_link_latency_, router, TmMeshPortDir::NORTH,
+                            north, TmMeshPortDir::SOUTH);
     }
   }
 
@@ -95,6 +112,7 @@ void TmMeshFabric::config() {
 void TmMeshFabric::build() {}
 
 void TmMeshFabric::reset() {
+  // 共享事务表先清空，后续各子模块各自 reset。
   txn_ctx_.clear();
 
   for (auto& niu : master_nius_) {
@@ -137,10 +155,14 @@ bool TmMeshFabric::idle() {
   for (auto& target_port : target_ports_) {
     ret = ret && target_port != nullptr && target_port->idle();
   }
+  for (const auto& it : links_) {
+    ret = ret && (it.second == nullptr || it.second->idle());
+  }
   return ret;
 }
 
 void TmMeshFabric::tick() {
+  // 整张网络每拍都按固定顺序推进，避免请求/响应交错导致语义混乱。
   for (auto& niu : master_nius_) {
     if (niu != nullptr) {
       niu->tick();
@@ -159,6 +181,7 @@ void TmMeshFabric::attach_master(uint32_t idx, p_tm_mesh_inf_t inf) {
     return;
   }
 
+  // NIU 接到 fabric 后，master_id 由 topology 的绑定关系决定。
   inf->set_master_id(topology_.port_master_id(idx));
   master_nius_[idx] = inf;
 }
@@ -177,22 +200,8 @@ void TmMeshFabric::attach_master(uint32_t idx, p_tm_com_inf_t inf) {
   }
   master_nius_[idx]->attach_upstream(inf);
 }
-//主要接口
-void TmMeshFabric::attach_master(uint32_t idx, p_pem_biu_t biu) {
-  if (biu == nullptr) {
-    return;
-  }
-  attach_master(idx, biu->out_intf_);
-  bind_master_id(idx, biu->core_id_);
-}
 
-void TmMeshFabric::attach_master(p_pem_biu_t biu) {
-  if (biu == nullptr) {
-    return;
-  }
-  attach_master(biu->core_id_, biu);
-}
-
+/* 直接挂接一个下游 target 接口。 */
 void TmMeshFabric::attach_target(uint32_t idx, p_tm_com_inf_t inf) {
   if (idx >= target_ports_.size() || target_ports_[idx] == nullptr ||
       inf == nullptr) {
@@ -200,7 +209,8 @@ void TmMeshFabric::attach_target(uint32_t idx, p_tm_com_inf_t inf) {
   }
   target_ports_[idx]->attach_downstream(inf);
 }
-//主要接口
+
+/* 直接挂接一个 TmMem，对外仍通过 TargetPort 的 inf() 握手。 */
 void TmMeshFabric::attach_target(uint32_t idx, p_tm_mem_t mem) {
   if (idx >= target_ports_.size() || target_ports_[idx] == nullptr ||
       mem == nullptr) {
@@ -260,42 +270,54 @@ bool TmMeshFabric::canSendWrReq(uint32_t master_port) {
 
 p_tm_com_que_t TmMeshFabric::get_target_fifo(uint32_t target_id,
                                              aic_req_type_t req_type) const {
+  // TargetPort 内部仍按请求类型分开本地缓存。
   return target_ports_[target_id]->req_q(req_type);
 }
 
 p_tm_com_que_t TmMeshFabric::get_mesh_req_fifo(uint32_t router_id,
+                                               TmMeshPortDir in_dir,
                                                aic_req_type_t req_type) const {
   auto router = routers_[router_id];
   if (req_type == aic_req_type_t::WR_DAT) {
-    return router->wr_dat_q();
+    return router->wr_dat_q(in_dir);
   }
-  return router->req_q();
+  return router->req_q(in_dir);
 }
 
 p_tm_com_que_t TmMeshFabric::get_mesh_rd_rsp_fifo(uint32_t router_id,
+                                                  TmMeshPortDir in_dir,
                                                   uint32_t lane) const {
-  return routers_[router_id]->rd_rsp_q(lane);
+  return routers_[router_id]->rd_rsp_q(in_dir, lane);
 }
 
 p_tm_com_que_t TmMeshFabric::get_mesh_wr_req_rsp_fifo(
-    uint32_t router_id) const {
-  return routers_[router_id]->wr_req_rsp_q();
+    uint32_t router_id, TmMeshPortDir in_dir) const {
+  return routers_[router_id]->wr_req_rsp_q(in_dir);
 }
 
 p_tm_com_que_t TmMeshFabric::get_mesh_wr_dat_rsp_fifo(
-    uint32_t router_id) const {
-  return routers_[router_id]->wr_dat_rsp_q();
+    uint32_t router_id, TmMeshPortDir in_dir) const {
+  return routers_[router_id]->wr_dat_rsp_q(in_dir);
 }
 
 p_tm_mesh_link_t TmMeshFabric::get_mesh_link(uint32_t src_router_id,
-                                             uint32_t dst_router_id) const {
-  auto it = links_.find(make_link_key(src_router_id, dst_router_id));
+                                             TmMeshPortDir src_dir,
+                                             uint32_t dst_router_id,
+                                             TmMeshPortDir dst_dir) const {
+  // 当前 link 是明确的 src_port -> dst_port 有向边。
+  auto it = links_.find(
+      make_link_key(src_router_id, src_dir, dst_router_id, dst_dir));
   return it == links_.end() ? nullptr : it->second;
 }
 
 uint64_t TmMeshFabric::make_link_key(uint32_t src_router_id,
-                                     uint32_t dst_router_id) const {
-  return (static_cast<uint64_t>(src_router_id) << 32) | dst_router_id;
+                                     TmMeshPortDir src_dir,
+                                     uint32_t dst_router_id,
+                                     TmMeshPortDir dst_dir) const {
+  return (static_cast<uint64_t>(src_router_id) << 48) |
+         (static_cast<uint64_t>(tm_mesh_port_index(src_dir)) << 40) |
+         (static_cast<uint64_t>(dst_router_id) << 8) |
+         static_cast<uint64_t>(tm_mesh_port_index(dst_dir));
 }
 
 uint64_t TmMeshFabric::make_txn_key(uint32_t mst_id, uint32_t gid) const {

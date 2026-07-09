@@ -1,15 +1,5 @@
 #include "tm_mesh_topology.h"
 
-/*
- * tm_mesh_topology.cc
- *
- * 负责 mesh 版本的：
- * - rows/cols/router_count 计算
- * - master_id 映射
- * - 地址到 target 的 decode
- * - 当前 router 到下一跳 router 的确定性坐标路由
- */
-
 namespace
 {
 
@@ -24,10 +14,10 @@ ceil_div_u32(uint32_t x, uint32_t y)
 void
 TmMeshTopology::config(p_tm_mesh_cfg_t cfg)
 {
-    /* mesh 网格首先要满足 endpoint 都能映射到有效 router。 */
     cfg_ = cfg;
     interleave_rules_.clear();
 
+    // 网格必须至少能容纳所有 master node 和 target node。
     uint32_t endpoint_count = cfg_->num_masters + cfg_->num_targets;
     rows_ = cfg_->mesh_rows == 0 ? 1 : cfg_->mesh_rows;
     cols_ = cfg_->mesh_cols;
@@ -52,7 +42,7 @@ TmMeshTopology::config(p_tm_mesh_cfg_t cfg)
 void
 TmMeshTopology::reset(uint32_t num_masters)
 {
-    /* 缺省绑定：port_id == mst_id。 */
+    // 默认绑定关系：port_id == mst_id。
     master_id_to_port_.clear();
     port_to_master_id_.assign(num_masters, 0);
     for (uint32_t i = 0; i < num_masters; ++i) {
@@ -89,7 +79,6 @@ TmMeshTopology::find_master_port(uint32_t mst_id) const
 uint32_t
 TmMeshTopology::decode_target(uint64_t addr) const
 {
-    /* 先按地址范围筛选，再按 interleave 规则选具体 target。 */
     uint32_t default_target = 0;
     bool has_default = false;
 
@@ -143,12 +132,51 @@ TmMeshTopology::target_node(uint32_t target_id) const
     return cfg_->num_masters + target_id;
 }
 
-uint32_t
-TmMeshTopology::compute_next_node(uint32_t cur_node, uint32_t dst_node) const
+bool
+TmMeshTopology::has_neighbor(uint32_t node_id, TmMeshPortDir dir) const
 {
-    /* 当前只实现确定性 X-first/Y-first 路由，不做自适应选择。 */
+    uint32_t row = row_of(node_id);
+    uint32_t col = col_of(node_id);
+
+    switch (dir) {
+      case TmMeshPortDir::NORTH:
+        return row > 0;
+      case TmMeshPortDir::SOUTH:
+        return row + 1 < rows_;
+      case TmMeshPortDir::EAST:
+        return col + 1 < cols_;
+      case TmMeshPortDir::WEST:
+        return col > 0;
+      case TmMeshPortDir::LOCAL:
+      default:
+        return true;
+    }
+}
+
+uint32_t
+TmMeshTopology::neighbor(uint32_t node_id, TmMeshPortDir dir) const
+{
+    switch (dir) {
+      case TmMeshPortDir::NORTH:
+        return node_id - cols_;
+      case TmMeshPortDir::SOUTH:
+        return node_id + cols_;
+      case TmMeshPortDir::EAST:
+        return node_id + 1;
+      case TmMeshPortDir::WEST:
+        return node_id - 1;
+      case TmMeshPortDir::LOCAL:
+      default:
+        return node_id;
+    }
+}
+
+TmMeshPortDir
+TmMeshTopology::route_direction(uint32_t cur_node, uint32_t dst_node) const
+{
+    // 当前支持最简单的确定性路由：X-first 或 Y-first。
     if (cur_node == dst_node) {
-        return cur_node;
+        return TmMeshPortDir::LOCAL;
     }
 
     uint32_t cur_row = row_of(cur_node);
@@ -158,27 +186,33 @@ TmMeshTopology::compute_next_node(uint32_t cur_node, uint32_t dst_node) const
 
     if (cfg_->mesh_x_first) {
         if (cur_col < dst_col) {
-            return cur_node + 1;
+            return TmMeshPortDir::EAST;
         }
         if (cur_col > dst_col) {
-            return cur_node - 1;
+            return TmMeshPortDir::WEST;
         }
         if (cur_row < dst_row) {
-            return cur_node + cols_;
+            return TmMeshPortDir::SOUTH;
         }
-        return cur_node - cols_;
+        return TmMeshPortDir::NORTH;
     }
 
     if (cur_row < dst_row) {
-        return cur_node + cols_;
+        return TmMeshPortDir::SOUTH;
     }
     if (cur_row > dst_row) {
-        return cur_node - cols_;
+        return TmMeshPortDir::NORTH;
     }
     if (cur_col < dst_col) {
-        return cur_node + 1;
+        return TmMeshPortDir::EAST;
     }
-    return cur_node - 1;
+    return TmMeshPortDir::WEST;
+}
+
+uint32_t
+TmMeshTopology::compute_next_node(uint32_t cur_node, uint32_t dst_node) const
+{
+    return neighbor(cur_node, route_direction(cur_node, dst_node));
 }
 
 uint32_t

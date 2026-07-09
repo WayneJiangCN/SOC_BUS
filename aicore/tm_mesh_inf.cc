@@ -45,8 +45,8 @@ bool Tm_mesh_inf::idle() {
 }
 
 void Tm_mesh_inf::tick() {
-  /* endpoint 风格下，NIU 不主动往 fabric 再发一层 inf。
-   * fabric 直接读取本地 pending request。 */
+  // 当前 NIU 本地不做额外流水推进：
+  // 请求/响应的真正前推由 Fabric 在全局 tick 中统一调度。
 }
 
 void Tm_mesh_inf::attach_upstream(p_tm_com_inf_t inf) {
@@ -54,7 +54,8 @@ void Tm_mesh_inf::attach_upstream(p_tm_com_inf_t inf) {
 }
 
 void Tm_mesh_inf::set_master_id(uint32_t mst_id) { inf_id_ = mst_id; }
-// API 风格请求：直接进 req_pending_q_
+
+// API 风格读请求：直接进入本地 req_pending_q_，等待 fabric 后续注入 mesh。
 uint32_t Tm_mesh_inf::send_rd_req(uint64_t address, uint32_t size) {
   if (!can_send_rd_req()) {
     return static_cast<uint32_t>(-1);
@@ -72,6 +73,7 @@ uint32_t Tm_mesh_inf::send_rd_req(uint64_t address, uint32_t size) {
   return cur_req_id;
 }
 
+// API 风格写请求：先发 WR_REQ，后续 WR_DAT 要等 WR_REQ_RSP 带回 grant。
 uint32_t Tm_mesh_inf::send_wr_req(uint64_t address, uint32_t size) {
   if (!can_send_wr_req()) {
     return static_cast<uint32_t>(-1);
@@ -104,7 +106,8 @@ bool Tm_mesh_inf::can_send_rd_req() {
 bool Tm_mesh_inf::can_send_wr_req() {
   return req_pending_q_.size() < request_queue_capacity();
 }
-// 接口风格请求：从外部 send() 到 bus_inf_
+
+// 接口风格请求：由上游 send() 到 bus_inf_，再被 NIU 吸收到本地 pending queue。
 void Tm_mesh_inf::ingest_upstream_requests(
     uint32_t master_port, const TmMeshTopology& topology,
     unordered_map<uint64_t, TmMeshTxnCtx>& txn_ctx, tm_time_t now) {
@@ -131,7 +134,8 @@ void Tm_mesh_inf::ingest_upstream_requests(
       if (pld->mst_id == 0) {
         pld->mst_id = inf_id_;
       }
-      // 事务上下文表：在 NIU 本地建立，供 fabric 端使用
+
+      // 对 WR_REQ / RD_REQ 来说，请求一旦进入 NIU，本地就开始为它建事务上下文。
       auto key = make_txn_key(pld);
       auto ctx_it = txn_ctx.find(key);
       if (req_type == aic_req_type_t::WR_DAT) {
@@ -217,6 +221,7 @@ bool Tm_mesh_inf::accept_read_response(p_tm_pld_t rsp, uint32_t lane) {
 bool Tm_mesh_inf::accept_write_request_response(p_tm_pld_t rsp,
                                                 const TmMeshGrant& grant) {
   bool is_api_write = is_api_write_request(rsp);
+  // grant FIFO 和本地 WR_DAT 队列都必须有空间，才能接受这条 WR_REQ_RSP。
   bool can_take_rsp =
       !wr_grant_fifo_->full() &&
       (!is_api_write || wr_dat_pending_q_.size() < write_data_queue_capacity());
@@ -232,6 +237,7 @@ bool Tm_mesh_inf::accept_write_request_response(p_tm_pld_t rsp,
   wr_grant_fifo_->push_back(grant);
 
   if (is_api_write) {
+    // API 写请求：WR_REQ_RSP 到达后，把后续 WR_DAT 排进本地等待发送。
     wr_dat_pending_q_.push_back(rsp);
   } else {
     retire_tracked_request(rsp);
@@ -300,6 +306,7 @@ uint64_t Tm_mesh_inf::make_txn_key(p_tm_pld_t pld) const {
 
 void Tm_mesh_inf::track_api_request(uint32_t req_id, p_tm_pld_t req,
                                     aic_req_type_t req_type) {
+  // API 路径单独维护完成态，因此需要一份本地跟踪表。
   bus_req_list_.push_back(std::make_pair(req_id, req));
 
   TmMeshInfApiReq state;

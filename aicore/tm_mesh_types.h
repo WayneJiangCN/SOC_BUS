@@ -26,6 +26,45 @@ enum class tm_mesh_txn_state_t
 using tm_mesh_target_cfg_t = tm_bus_target_cfg_t;
 using p_tm_mesh_target_cfg_t = p_tm_bus_target_cfg_t;
 
+enum class TmMeshPortDir : uint32_t
+{
+    LOCAL = 0,
+    NORTH = 1,
+    SOUTH = 2,
+    EAST = 3,
+    WEST = 4,
+};
+
+inline constexpr uint32_t
+tm_mesh_port_count()
+{
+    return 5;
+}
+
+inline constexpr uint32_t
+tm_mesh_port_index(TmMeshPortDir dir)
+{
+    return static_cast<uint32_t>(dir);
+}
+
+inline constexpr TmMeshPortDir
+tm_mesh_opposite_dir(TmMeshPortDir dir)
+{
+    switch (dir) {
+      case TmMeshPortDir::NORTH:
+        return TmMeshPortDir::SOUTH;
+      case TmMeshPortDir::SOUTH:
+        return TmMeshPortDir::NORTH;
+      case TmMeshPortDir::EAST:
+        return TmMeshPortDir::WEST;
+      case TmMeshPortDir::WEST:
+        return TmMeshPortDir::EAST;
+      case TmMeshPortDir::LOCAL:
+      default:
+        return TmMeshPortDir::LOCAL;
+    }
+}
+
 struct TmMeshCfg
 {
     std::string name = "";
