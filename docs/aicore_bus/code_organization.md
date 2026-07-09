@@ -1,181 +1,207 @@
 # 代码组织说明
 
-## 1. 文档范围
+## 1. 范围
 
-本文档说明当前 ring 版本 `TmBusFabric` 的源码如何按职责拆分，以及每个文件在整体设计中的位置。
+本文档说明当前 `BUS/aicore/` 下 mesh 主线代码的职责划分。
 
-## 2. 当前主文件
+当前主线结构是：
 
-当前 ring 版本的主要代码文件包括：
+- `Tm_mesh_inf`
+- `TmMeshRouter`
+- `TmMeshLink`
+- `TmMeshTargetPort`
+- `TmMeshFabric`
+- `TmMeshTopology`
+- `TmBusFlowCtrl`
 
-- `BUS/aicore/tm_bus_types.h`
-- `BUS/aicore/tm_bus.h`
-- `BUS/aicore/tm_bus_core.cc`
-- `BUS/aicore/tm_bus_topology.h`
-- `BUS/aicore/tm_bus_topology.cc`
-- `BUS/aicore/tm_bus_interleave.h`
-- `BUS/aicore/tm_bus_interleave.cc`
-- `BUS/aicore/tm_bus_req.cc`
-- `BUS/aicore/tm_bus_rsp.cc`
-- `BUS/aicore/tm_bus_flow_ctrl.h`
-- `BUS/aicore/tm_bus_flow_ctrl.cc`
-- `BUS/aicore/tm_bus_arbiter.h`
-- `BUS/aicore/tm_bus_arbiter.cc`
+这条主线已经完成一轮精简：
 
-## 3. 各文件职责
+- 不再使用 fabric 级 `arbiter_`
+- 不再保留旧的 `advance_mesh_reqs()` / `advance_mesh_rsps()` 兼容壳
+- 不再保留按 request/data/response 拆开的旧 hop-ready 接口
 
-### 3.1 `tm_bus_types.h`
+## 2. 核心文件
 
-负责集中定义：
+### 2.1 类型与拓扑
 
-- 配置结构
-- 事务状态枚举
-- interleave 类型
-- grant 结构
-- `TmBusTxnCtx`
+- `tm_mesh_types.h`
+  - mesh 配置结构
+  - `TmMeshTxnCtx`
+  - `TmMeshGrant`
+  - mesh 事务状态
+- `tm_mesh_topology.h/.cc`
+  - `rows / cols / router_count`
+  - `master_node(master_port)`
+  - `target_node(target_id)`
+  - `compute_next_node()`
+  - `decode_target()`
+  - `bind_master_id()`
 
-ring 版本中最重要的变化在这里体现为：
+### 2.2 左侧 endpoint
 
-- 新增 `IN_REQ_RING`
-- 新增 `IN_RSP_RING`
-- 新增 `src_node`
-- 新增 `dst_node`
-- 新增 `ring_req_fifo_depth`
-- 新增 `ring_rsp_fifo_depth`
-- 新增 `ring_link_latency`
+- `tm_mesh_inf.h/.cc`
+  - master-side NIU
+  - `bus_inf_`
+  - `req_pending_q_`
+  - `wr_dat_pending_q_`
+  - `wr_grant_fifo_`
+  - `bus_req_list_ / api_req_map_`
 
-### 3.2 `tm_bus.h`
+### 2.3 中间网络节点
 
-负责声明 `TmBusFabric` 主类，以及所有主要成员。
+- `tm_mesh_router.h/.cc`
+  - 每个 router 自己持有本地 message queues
+  - request queue
+  - write-data queue
+  - read-response queues
+  - write-response queues
+  - per-output RR 仲裁状态
 
-ring 版本里，这里最值得关注的是：
+- `tm_mesh_link.h/.cc`
+  - 相邻 router 之间的有向物理链路
+  - `latency`
+  - 共享 `next_ready_time()`
 
-- ring request FIFO 成员
-- ring response FIFO 成员
-- 每类 ring hop time 成员
-- `inject_ring_req`
-- `advance_ring_req_type`
-- `advance_ring_rd_rsps`
-- `advance_ring_wr_req_rsps`
-- `advance_ring_wr_dat_rsps`
+### 2.4 右侧 endpoint
 
-### 3.3 `tm_bus_core.cc`
+- `tm_mesh_target_port.h/.cc`
+  - target-side ingress port
+  - target-local request queues
+  - 下游 `inf()` 接口
 
-负责：
+### 2.5 顶层共享容器
 
-- `config / build / reset / idle`
-- master/target attach
-- ring FIFO 创建
-- 主 `tick()` 调度顺序
+- `tm_mesh.h`
+  - `TmMeshFabric` 类声明
+  - 成员组织与 helper 声明
 
-当前 ring 版本的 `tick()` 顺序是：
+- `tm_mesh_core.cc`
+  - `config / reset / idle / tick`
+  - `attach_master / attach_target`
+  - API 风格 `send_rd_req / send_wr_req`
+  - link 创建和 helper
 
-1. `update_tokens`
-2. `recv_target_rsps`
-3. `advance_ring_rsps`
-4. `send_master_rsps`
-5. `recv_master_reqs`
-6. `inject_ring_reqs`
-7. `advance_ring_reqs`
-8. `send_target_reqs`
+- `tm_mesh_req.cc`
+  - 从 NIU 吸收请求
+  - request/data 注入
+  - 统一的 `advance_mesh_routers()`
+  - Router -> Link -> Router 前推
+  - 到达 target 后进入 `TargetPort` local queue
 
-这已经很好地体现了“先收回程，再回送，再收新请求，再推进请求”的 ring 调度逻辑。
+- `tm_mesh_rsp.cc`
+  - 从 `TargetPort` 收响应
+  - 将 response 注入目标 router 的 response queues
 
-### 3.4 `tm_bus_topology.h/.cc`
+## 3. 各层职责
 
-负责：
+### 3.1 `Tm_mesh_inf`
 
-- `master_id <-> port_id` 映射
-- 地址解码
-- default target
-- target 选择
-- ring 节点映射
+只负责端点本地行为：
 
-ring 版本新增的重点接口是：
+- 上游接口
+- 本地 pending
+- grant
+- completion
 
-- `ring_node_count()`
-- `master_node()`
-- `target_node()`
-- `next_ring_node()`
+它不负责：
 
-### 3.5 `tm_bus_interleave.h/.cc`
+- 多跳路由
+- mesh 内部 queue
+- target flow control
 
-负责 interleave 算法本身。
+### 3.2 `TmMeshRouter`
 
-当前 ring 版本没有改变这些算法，只改变了它们在整体系统中的位置：
+负责本节点的粗粒度 message-level router 行为：
 
-- 先用 interleave 选 target
-- 再把 target 映射到 ring 节点
+- 持有本地 request/data/response queues
+- 为同一输出口上的多个候选流量做 RR 选择
 
-### 3.6 `tm_bus_req.cc`
+它不负责：
 
-负责请求路径。
+- flit
+- VC
+- credit
+- router pipeline
 
-当前 ring 版本里，这个文件的职责已经变成四层：
+### 3.3 `TmMeshLink`
 
-1. 从 master inf 收包
-2. 写入 master ingress FIFO
-3. 从 source node 注入 request ring
-4. 在 ring 上逐跳前推
-5. 到达目的 target node 后进入 target FIFO
-6. 最终发给 target inf
+只负责相邻节点之间的 hop 资源：
 
-这就是 ring 版本最核心的请求主路径文件。
+- hop latency
+- 共享输出节流时间
 
-### 3.7 `tm_bus_rsp.cc`
+它不负责：
 
-负责响应路径。
+- queue
+- credit
+- flit
 
-当前 ring 版本里，这个文件对应：
+### 3.4 `TmMeshTargetPort`
 
-1. 从 target inf 收响应
-2. 从 target node 注入 response ring
-3. 在 ring 上逐跳回传
-4. 到达 source node 后进入 master response FIFO
-5. 最终发回 master inf
-6. 完成 credit 释放和事务回收
+只负责 target 侧 endpoint：
 
-它和 `tm_bus_req.cc` 一起构成完整的双向事务闭环。
+- 接住 Router 到达目标节点后的 request
+- 再转交给 target / TmMem
+- 把 target 响应交回 Fabric
 
-### 3.8 `tm_bus_flow_ctrl.h/.cc`
+### 3.5 `TmMeshFabric`
 
-负责：
+是共享容器和调度骨架，负责：
 
-- target credit
-- bandwidth token
-- outstanding
-- busy time
-- hotspot penalty
+- 持有 NIU / Router / Link / TargetPort
+- 维护共享 `txn_ctx_`
+- 安排 tick 顺序
+- 调用 topology / flow control
 
-这个模块在 ring 版本仍然很重要，因为当前流控还没有切到 Ruby/Garnet 式 hop-by-hop credit。
+## 4. tick 主顺序
 
-### 3.9 `tm_bus_arbiter.h/.cc`
+当前 `TmMeshFabric::tick()` 的主顺序是：
 
-当前仍保留在仓库中，但定位已经变化。
+1. `NIU.tick()`
+2. `flow_ctrl_.update_tokens()`
+3. `recv_target_rsps()`
+4. `recv_master_reqs()`
+5. `inject_mesh_reqs()`
+6. `advance_mesh_routers()`
+7. `send_target_reqs()`
 
-它现在更像：
+这里：
 
-- 兼容旧总线时期的模块拆分
-- 未来 router 局部仲裁的保留扩展点
+- 先收 target 回包
+- 再吸收新的 master 请求
+- 再统一推进 router / link / target path
 
-而不是当前 ring 主路径的核心依赖。
+## 5. request / data / response 的落点
 
-## 4. 为什么这样拆分是合理的
+- request/data 前向路径：`tm_mesh_req.cc`
+- response 注入路径：`tm_mesh_rsp.cc`
+- endpoint 本地收发：`tm_mesh_inf.cc`
+- target 侧端口：`tm_mesh_target_port.cc`
+- router 本地 queues 与仲裁：`tm_mesh_router.cc`
+- link hop 状态：`tm_mesh_link.cc`
 
-当前拆分方式有两个优点：
+## 6. 仍在复用的公共模块
 
-1. 它保持了你们现有 `tm_*` ESL 工程的直观性。
-2. 它又把 ring 拓扑、事务路径、流控、interleave 这些主题分清了。
+- `tm_bus_flow_ctrl.h/.cc`
+  - 当前 mesh 继续复用它做 target-level flow control
 
-因此即使后面从 ring 演进到 mesh，也不需要推翻整个文件结构，只需要继续替换和细化某些局部模块。
+- `tm_bus_interleave.h/.cc`
+  - 地址到 target/channel 的分流逻辑
 
-## 5. 后续演进建议
+`tm_bus_arbiter.h/.cc` 仍然保留在工程里，但已经不再是 mesh 主路径依赖。
 
-如果后面继续做更真实的 NoC，建议优先沿着下面方向演进：
+## 7. 一句话理解
 
-1. 把 ring node/router 抽成独立对象。
-2. 把 request subnet 和 response subnet 抽成显式类。
-3. 把 `tm_bus_arbiter` 挂回 router output arbitration。
-4. 在 `tm_bus_flow_ctrl` 之外再增加 hop-by-hop credit 模块。
+```text
+Tm_mesh_inf
+  负责端点本地行为
 
-当前这套代码拆分已经为这些方向留好了空间。
+TmMeshRouter + TmMeshLink
+  负责网内逐跳行为
+
+TmMeshTargetPort
+  负责目标端口行为
+
+TmMeshFabric
+  负责把它们组织和调度起来
+```

@@ -2,124 +2,99 @@
 
 ## 1. 文档范围
 
-本文档描述 ring 版本 `TmBusFabric` 中“仲裁”这一概念当前是如何变化的。
+本文档说明当前 mesh 主线里的仲裁逻辑放在哪里，以及 `tm_bus_arbiter` 为什么已经不在主路径上。
 
-这里最重要的结论是：
+## 2. 当前 mesh 主路径的仲裁位置
 
-**ring 版本已经不再采用旧总线版本那种中心式 `per-target` 仲裁作为主路径核心。**
-
-## 2. 从旧总线版本到 ring 版本的变化
-
-旧版本更像：
+当前主路径已经不是早期“大 fabric 扫描一堆 FIFO”的模式，而是：
 
 ```text
-master ingress
-  -> per-target 选人
-  -> target FIFO
-  -> target
+NIU
+  -> Router local queues
+  -> Router per-output RR
+  -> Link shared throttle
+  -> 下一跳 Router / TargetPort / NIU
 ```
 
-其核心矛盾是：
+因此当前真正生效的仲裁点在：
 
-- 多个 master 同时抢同一个 target
+- `TmMeshRouter::pick_output_winner()`
+- `TmMeshLink::next_ready_time()`
 
-而 ring 版本更像：
+前者负责：
+
+- 同一个 router 节点里
+- 多个 traffic class 同时请求同一个输出口时
+- 选择这拍谁先走
+
+后者负责：
+
+- 这一拍链路是否可用
+- 输出资源是否需要节流
+
+## 3. 仲裁粒度
+
+当前是粗粒度 message/transaction 级仲裁，不是 Garnet 那种 flit/VC 级仲裁。
+
+当前粒度大致是：
+
+- request subnet：`RD_REQ + WR_REQ`
+- data subnet：`WR_DAT`
+- response subnet：
+  - `RD_RSP`
+  - `WR_REQ_RSP`
+  - `WR_DAT_RSP`
+
+Router 会从这些本地 queue 里收集候选，再按输出口做 RR 选择。
+
+## 4. 为什么不再用 fabric 级 `arbiter_`
+
+早期实现里，fabric 顶层保留过：
+
+- `TmBusArbiter arbiter_`
+
+但当前 mesh 主路径已经完成精简：
+
+- fabric 不再做单独的中心式仲裁
+- router 自己负责本节点的输出选择
+- link 自己负责共享节流
+
+因此 fabric 级 `arbiter_` 已经删除，不再是主路径依赖。
+
+## 5. `tm_bus_arbiter` 当前定位
+
+`tm_bus_arbiter.h/.cc` 仍然保留在工程中，但当前定位已经变成：
+
+- 历史遗留的公共模块
+- 未来如果要做更复杂 router arbitration 的扩展点
+
+它当前不是 mesh 主路径核心。
+
+## 6. 当前不是在做什么
+
+当前 mesh 主线没有做：
+
+- InputUnit / OutputUnit
+- SwitchAllocator
+- CrossbarSwitch
+- credit-based arbitration
+- flit/VC 级调度
+
+这些都是更接近 Garnet 的 NoC 微结构，不属于当前 SoC 级轻量 mesh-lite 模型的目标范围。
+
+## 7. 当前仲裁模型的一句话总结
+
+当前 mesh 仲裁可以概括成：
 
 ```text
-master ingress
-  -> source node 注入 ring
-  -> ring 逐跳前推
-  -> target node
-  -> target FIFO
-  -> target
+Router 负责本地 per-output RR
+Link 负责共享输出节流
+TargetPort 负责目标端口准入
 ```
 
-它的核心矛盾已经转成：
+这套机制足够支撑：
 
-- 当前节点能不能继续往下一跳送
-- 当前目标 FIFO 是否还有空间
-
-## 3. 当前主路径中的“仲裁”
-
-当前 ring 主路径里的仲裁更加弱化，主要表现为以下几种局部顺序规则：
-
-1. 每个 FIFO 先看队头。
-2. 每个 node 对某一类 traffic 一次只前推一个队头包。
-3. 如果下一跳 FIFO 满，当前 node 本拍就停住。
-4. 如果当前 node 已到达目的节点，则优先尝试进入本地 target FIFO 或 master response FIFO。
-
-所以当前版本的“仲裁”本质上更接近：
-
-```text
-FIFO 顺序 + 局部可前推判断
-```
-
-而不是独立的中心式调度器。
-
-## 4. 为什么会这样
-
-这是 ring 拓扑带来的自然变化。
-
-在中心总线里，问题是“谁先占中心资源”。
-
-在 ring 里，问题变成了：
-
-- 这个包是否已经到达目的节点
-- 没到的话下一跳能不能走
-
-因此主路径调度天然从“全局抢占”变成了“分布式逐跳前推”。
-
-## 5. 请求路径中的局部顺序
-
-当前请求路径的主要顺序是：
-
-1. `recv_master_reqs()` 按 `WR_REQ -> WR_DAT -> RD_REQ` 顺序收包。
-2. `inject_ring_reqs()` 按 `RD_REQ -> WR_REQ -> WR_DAT` 顺序尝试把本地 FIFO 注入 ring。
-3. `advance_ring_reqs()` 分别推进三类请求 ring FIFO。
-4. `send_target_reqs()` 再按 `RD_REQ -> WR_REQ -> WR_DAT` 依次尝试发给 target。
-
-这里没有单独的中心仲裁器对象参与主路径选人。
-
-## 6. 响应路径中的局部顺序
-
-响应路径同样采用局部队列顺序：
-
-1. target 先把响应注入目标节点的响应 ring FIFO。
-2. ring 再逐跳回传。
-3. 到达 source node 后进入 master response FIFO。
-4. 最后再送回 `PemBiu`。
-
-其中读响应还会带 lane 维度：
-
-- 每个 lane 独立 FIFO
-- 每个 lane 独立回送
-
-## 7. `tm_bus_arbiter` 当前的定位
-
-`tm_bus_arbiter.h/.cc` 仍然保留在工程中，但在当前 ring 主路径里的定位已经变化：
-
-- 它不再是主数据路径的核心依赖
-- 更像是保留的扩展点
-
-也就是说：
-
-- 旧总线版本中，arbiter 是主路径核心
-- 当前 ring 版本中，arbiter 是保留模块，不是主路径核心
-
-## 8. 为什么不直接删掉 arbiter
-
-保留它有两个好处：
-
-1. 后面如果从 ring NoC-lite 往更复杂的 router 模型演进，可以直接在 router output arbitration 上复用这类模块化思路。
-2. 如果以后又需要某些 node-local 优先级、QoS 或虚拟子网仲裁，也有明确的挂载点。
-
-## 9. 后续可演进方向
-
-如果后面要把 ring 继续往更真实的 NoC 推，可以考虑引入真正的 router 局部仲裁，例如：
-
-- input-buffer to output-port 的 RR
-- weighted RR
-- age-based priority
-- request/reply 分 subnet 后分别仲裁
-
-到那时，`tm_bus_arbiter` 才会重新进入主路径核心位置。
+- 多 core 并发
+- 多 target / 多 channel
+- 交织与热点瓶颈分析
+- SoC 级 CA/ESL 用例

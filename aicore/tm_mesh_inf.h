@@ -3,42 +3,47 @@
 
 #include <stdint.h>
 
-#include <deque>
 #include <memory>
+#include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
-#include "tm_bus_flow_ctrl.h"
+#include "tm_clock.h"
 #include "tm_engine.h"
 #include "tm_inf.h"
 #include "tm_mesh_topology.h"
 #include "tm_mesh_types.h"
-#include "tm_pld.h"
 #include "tm_que.h"
+
+using tm_mesh_grant_que_t = TmQue<TmMeshGrant>;
+using p_tm_mesh_grant_que_t = std::shared_ptr<tm_mesh_grant_que_t>;
 
 struct TmMeshInfApiReq
 {
-    /* 记录通过本地 API 发出的请求类型和完成进度。 */
     aic_req_type_t req_type = aic_req_type_t::RD_REQ;
     uint32_t rsp_expected = 1;
     uint32_t rsp_seen = 0;
 };
 
 /*
- * Tm_mesh_inf:
- * master-side NIU（Network Interface Unit）。
+ * Tm_mesh_inf
  *
- * 它只负责单个 master 自己本地的事情：
- * 1. 从上游接口或本地 API 接收请求；
- * 2. 用本地 FIFO 暂存 RD_REQ / WR_REQ / WR_DAT；
- * 3. 维护写事务 grant；
- * 4. 接收从 mesh 回来的响应，并在本地排队后再送回上游。
+ * master-side endpoint / NIU。
  *
- * 它不负责共享 mesh 网络本体：
- * - 不做逐跳路由；
- * - 不做 target 流控；
- * - 不持有 mesh 内部 FIFO。
- * 这些都留在 TmMeshFabric 中。
+ * 这层借鉴的是 gem5 SimpleNetwork endpoint 的 message-buffer 思路：
+ * - endpoint 自己维护本地 pending queue / grant queue
+ * - Fabric 主动从 endpoint 读取待发事务
+ * - Fabric 把回包直接交回 endpoint
+ *
+ * 但协议语义仍然保持 AI Core 风格：
+ * - RD_REQ / WR_REQ / WR_DAT 三类请求
+ * - WR_REQ_RSP -> grant -> WR_DAT
+ * - WR_DAT_RSP 才代表写事务真正完成
+ *
+ * bus_inf_ 是 NIU 对上游暴露的唯一接口：
+ * - 上游可以通过 bus_inf_ 把 request 推给 NIU
+ * - NIU 也通过 bus_inf_ 把 response 送回上游
  */
 class Tm_mesh_inf : public tm_engine::TmModule
 {
@@ -50,93 +55,98 @@ class Tm_mesh_inf : public tm_engine::TmModule
     void config();
     void reset();
     bool idle();
+    void tick();
 
-    void connect_upstream(p_tm_com_inf_t inf);
-    void bind_master_id(uint32_t mst_id);
+    void attach_upstream(p_tm_com_inf_t inf);
+    void set_master_id(uint32_t mst_id);
 
     uint32_t send_rd_req(uint64_t address, uint32_t size);
     uint32_t send_wr_req(uint64_t address, uint32_t size);
 
-    bool completed(uint32_t req_id);
-    bool canSendRdReq();
-    bool canSendWrReq();
+    bool is_request_completed(uint32_t req_id);
+    bool can_send_rd_req();
+    bool can_send_wr_req();
 
-    void ingest_upstream_reqs(uint32_t master_port,
-                              const TmMeshTopology& topology,
-                              std::unordered_map<uint64_t, TmMeshTxnCtx>& txn_ctx,
-                              tm_engine::tm_time_t now);
+    /*
+     * 从 bus_inf_ 吸收新的上游请求，并在需要时建立共享 txn_ctx_。
+     * Fabric 每拍调用一次，把端口边界的新请求收进 NIU 本地 pending queue。
+     */
+    void ingest_upstream_requests(
+        uint32_t master_port, const TmMeshTopology& topology,
+        std::unordered_map<uint64_t, TmMeshTxnCtx>& txn_ctx,
+        tm_engine::tm_time_t now);
 
-    bool has_req(aic_req_type_t req_type) const;
-    p_tm_pld_t front_req(aic_req_type_t req_type) const;
-    void pop_req(aic_req_type_t req_type);
+    /*
+     * Fabric 注入 request/data subnet 时使用的本地 pending 接口。
+     * RD_REQ 和 WR_REQ 共用 req_pending_q_，WR_DAT 单独走 wr_dat_pending_q_。
+     */
+    bool has_pending_request(aic_req_type_t req_type) const;
+    p_tm_pld_t peek_pending_request(aic_req_type_t req_type) const;
+    void pop_pending_request(aic_req_type_t req_type);
 
-    bool has_grant() const;
-    const TmMeshGrant& front_grant() const;
-    void pop_grant();
+    /* 写事务 grant 由 NIU 本地缓存，后续驱动 WR_DAT 注入 */
+    bool has_pending_grant() const;
+    TmMeshGrant peek_pending_grant() const;
+    void pop_pending_grant();
+    bool can_accept_write_grant() const;
 
-    bool can_accept_rd_rsp(uint32_t lane) const;
-    bool can_accept_wr_req_rsp() const;
-    bool can_accept_wr_dat_rsp() const;
-    bool can_accept_grant() const;
-
-    bool accept_rd_rsp(p_tm_pld_t rsp, uint32_t lane);
-    bool accept_wr_req_rsp(p_tm_pld_t rsp, const TmMeshGrant& grant);
-    bool accept_wr_dat_rsp(p_tm_pld_t rsp);
-
-    void service_rsp_outputs(const TmBusFlowCtrl& flow_ctrl,
-                             const std::unordered_map<uint64_t, TmMeshTxnCtx>& txn_ctx,
-                             tm_engine::tm_time_t now);
+    /*
+     * Fabric 把 response 直接交回 NIU：
+     * - 读响应可按 lane 乱序返回
+     * - 写请求响应会顺带生成本地 grant
+     * - 写完成响应会清理本地完成状态
+     */
+    bool accept_read_response(p_tm_pld_t rsp, uint32_t lane);
+    bool accept_write_request_response(p_tm_pld_t rsp,
+                                       const TmMeshGrant& grant);
+    bool accept_write_data_response(p_tm_pld_t rsp);
 
   public:
-    /* 对外可见的 master 侧接口。 */
+    /* 对上游暴露的唯一接口 */
     p_tm_com_inf_t bus_inf_ = nullptr;
+    /* 当前 NIU 绑定的 master_id */
+    uint32_t inf_id_ = 0;
+
+  protected:
     tm_engine::p_tm_clk_t clk_ = nullptr;
     p_tm_mesh_cfg_t cfg_ = nullptr;
 
-    /*
-     * inf_id_ 表示这个 NIU 对应的 master_id。
-     * 它会写入 pld->mst_id，后续 fabric / target / response path
-     * 都靠这个字段识别这笔事务属于哪个 master。
-     */
-    uint32_t inf_id_ = 0;
+    /* 本地待发请求：RD_REQ / WR_REQ 共用，保持提交顺序 */
+    std::vector<p_tm_pld_t> req_pending_q_;
+    /* 本地待发 WR_DAT，只有拿到 grant 后才允许注入 data subnet */
+    std::vector<p_tm_pld_t> wr_dat_pending_q_;
+    /* 写事务 grant 本地缓存 */
+    p_tm_mesh_grant_que_t wr_grant_fifo_ = nullptr;
 
-  private:
-    p_tm_com_que_t req_fifo(aic_req_type_t req_type) const;
-    uint64_t make_txn_key(uint32_t mst_id, uint32_t gid) const;
-    uint64_t make_txn_key(p_tm_pld_t pld) const;
-    bool retire_api_req(p_tm_pld_t rsp);
-
-  private:
-    uint32_t req_id_ = 0;
-
-    /* 本地请求 FIFO：分别缓存读请求、写请求头和写数据。 */
-    p_tm_com_que_t rd_req_fifo_ = nullptr;
-    p_tm_com_que_t wr_req_fifo_ = nullptr;
-    p_tm_com_que_t wr_dat_fifo_ = nullptr;
-
-    /* 本地响应 FIFO：回到 source NIU 后，先排队再送上游。 */
-    std::vector<p_tm_com_que_t> rd_rsp_fifo_;
-    p_tm_com_que_t wr_req_rsp_fifo_ = nullptr;
-    p_tm_com_que_t wr_dat_rsp_fifo_ = nullptr;
-
-    /* 写事务 grant FIFO：WR_DAT 必须严格匹配队头 grant 才能继续发送。 */
-    std::deque<TmMeshGrant> wr_grant_fifo_;
-
-    /*
-     * 仅用于本地 API 风格：
-     * send_rd_req()/send_wr_req() 发出的请求不会通过上游 bus_inf_ 回调完成，
-     * 因此需要一张小表记录 req_id 是否已经完成。
-     */
+    /* 非 API 形式请求的在途跟踪，用于按 pld 指针乱序完成 */
+    std::vector<std::pair<uint32_t, p_tm_pld_t>> bus_req_list_;
+    /* API 形式请求的 req_id -> 完成统计 */
     std::unordered_map<uint32_t, TmMeshInfApiReq> api_req_map_;
 
-    /* 本地响应向上游发送时的节拍控制。 */
-    std::vector<tm_engine::tm_time_t> next_rd_rsp_issue_time_;
-    tm_engine::tm_time_t next_wr_req_rsp_issue_time_ = 0;
-    tm_engine::tm_time_t next_wr_dat_rsp_issue_time_ = 0;
+    uint32_t req_id_ = 0;
+
+  protected:
+    size_t request_queue_capacity() const;
+    size_t write_data_queue_capacity() const;
+    bool front_request_matches(aic_req_type_t req_type) const;
+
+    uint32_t request_channel(aic_req_type_t req_type) const;
+    uint32_t response_channel(aic_req_type_t req_type,
+                              uint32_t lane = 0) const;
+
+    uint64_t make_txn_key(uint32_t mst_id, uint32_t gid) const;
+    uint64_t make_txn_key(p_tm_pld_t pld) const;
+
+    void track_api_request(uint32_t req_id, p_tm_pld_t req,
+                           aic_req_type_t req_type);
+    void retire_tracked_request(p_tm_pld_t rsp);
+    bool retire_api_read_response(p_tm_pld_t rsp);
+    bool retire_api_write_response(p_tm_pld_t rsp);
+    bool is_api_write_request(p_tm_pld_t rsp) const;
 };
 
-using tm_mesh_niu_t = Tm_mesh_inf;
-using p_tm_mesh_inf_t = std::shared_ptr<tm_mesh_niu_t>;
+using tm_mesh_inf_t = Tm_mesh_inf;
+using p_tm_mesh_inf_t = std::shared_ptr<tm_mesh_inf_t>;
 
 inline p_tm_mesh_inf_t
 tm_make_mesh_inf(const std::string& name, tm_engine::p_tm_clk_t clk,
