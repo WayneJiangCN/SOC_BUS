@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "tm_bus_flow_ctrl.h"
-#include "tm_mesh_pld.h"
+#include "tm_pld.h"
 
 using namespace std;
 using namespace tm_engine;
@@ -29,7 +29,7 @@ void Tm_mesh_inf::config() {
   tm_sensitive(TM_MAKE_CPROC(&Tm_mesh_inf::recv_wr_cmd), bus_inf_->vld);
   tm_sensitive(TM_MAKE_CPROC(&Tm_mesh_inf::recv_wr_dat), bus_inf_->vld);
 
-  wr_grant_fifo_ = tm_make_que<TmMeshGrant>(
+  wr_grant_fifo_ = tm_make_que<p_tm_pld_t>(
       clk_, this->name() + "_wr_grant_fifo", cfg_->master_wr_grant_fifo_depth);
 
   reset();
@@ -41,11 +41,13 @@ void Tm_mesh_inf::reset() {
   bus_req_list_.clear();
   api_req_map_.clear();
   req_id_ = 0;
+  rd_outstanding_ = 0;
+  wr_outstanding_ = 0;
 }
 
 bool Tm_mesh_inf::idle() {
   return bus_inf_->idle() && wr_grant_fifo_->empty() && bus_req_list_.empty() &&
-         api_req_map_.empty();
+         api_req_map_.empty() && rd_outstanding_ == 0 && wr_outstanding_ == 0;
 }
 
 void Tm_mesh_inf::attach(p_tm_com_inf_t inf) { bus_inf_->connect(inf); }
@@ -53,16 +55,17 @@ void Tm_mesh_inf::attach(p_tm_com_inf_t inf) { bus_inf_->connect(inf); }
 void Tm_mesh_inf::attach(uint32_t master_port, p_tm_mesh_topology_t topology,
                          p_tm_mesh_flow_ctrl_t flow_ctrl,
                          p_tm_com_que_t router_req_q,
-                         p_tm_com_que_t router_wr_dat_q) {
+                         p_tm_com_que_t router_wr_dat_q,
+                         tm_mesh_osd_reserve_t global_osd_reserve) {
   master_port_ = master_port;
   topology_ = topology;
   flow_ctrl_ = flow_ctrl;
   router_req_q_ = router_req_q;
   router_wr_dat_q_ = router_wr_dat_q;
+  global_osd_reserve_ = std::move(global_osd_reserve);
   tm_sensitive(TM_MAKE_CPROC(&Tm_mesh_inf::recv_rd_cmd), router_req_q_->rdy);
   tm_sensitive(TM_MAKE_CPROC(&Tm_mesh_inf::recv_wr_cmd), router_req_q_->rdy);
-  tm_sensitive(TM_MAKE_CPROC(&Tm_mesh_inf::recv_wr_dat),
-               router_wr_dat_q_->rdy);
+  tm_sensitive(TM_MAKE_CPROC(&Tm_mesh_inf::recv_wr_dat), router_wr_dat_q_->rdy);
 }
 
 void Tm_mesh_inf::set_master_id(uint32_t mst_id) { inf_id_ = mst_id; }
@@ -105,9 +108,13 @@ bool Tm_mesh_inf::is_request_completed(uint32_t req_id) {
   return iter == bus_req_list_.end();
 }
 
-bool Tm_mesh_inf::can_send_rd_req() { return !router_req_q_->full(); }
+bool Tm_mesh_inf::can_send_rd_req() {
+  return rd_outstanding_ < cfg_->master_rd_osd && !router_req_q_->full();
+}
 
-bool Tm_mesh_inf::can_send_wr_req() { return !router_req_q_->full(); }
+bool Tm_mesh_inf::can_send_wr_req() {
+  return wr_outstanding_ < cfg_->master_wr_osd && !router_req_q_->full();
+}
 
 void Tm_mesh_inf::recv_rd_cmd() {
   auto req_type = aic_req_type_t::RD_REQ;
@@ -115,9 +122,7 @@ void Tm_mesh_inf::recv_rd_cmd() {
 
   if (bus_inf_->valid(chan)) {
     auto cmd = bus_inf_->get_pld(chan);
-    if (cmd->mst_id == 0) {
-      cmd->mst_id = inf_id_;
-    }
+    cmd->mst_id = inf_id_;
     if (!issue_cmd_to_ring(req_type, cmd)) {
       return;
     }
@@ -131,9 +136,7 @@ void Tm_mesh_inf::recv_wr_cmd() {
 
   if (bus_inf_->valid(chan)) {
     auto cmd = bus_inf_->get_pld(chan);
-    if (cmd->mst_id == 0) {
-      cmd->mst_id = inf_id_;
-    }
+    cmd->mst_id = inf_id_;
     if (!issue_cmd_to_ring(req_type, cmd)) {
       return;
     }
@@ -147,9 +150,7 @@ void Tm_mesh_inf::recv_wr_dat() {
 
   if (bus_inf_->valid(chan)) {
     auto cmd = bus_inf_->get_pld(chan);
-    if (cmd->mst_id == 0) {
-      cmd->mst_id = inf_id_;
-    }
+    cmd->mst_id = inf_id_;
     if (!issue_cmd_to_ring(req_type, cmd)) {
       return;
     }
@@ -158,8 +159,13 @@ void Tm_mesh_inf::recv_wr_dat() {
 }
 
 bool Tm_mesh_inf::issue_cmd_to_ring(aic_req_type_t req_type, p_tm_pld_t pld) {
-  if (pld->mst_id == 0) {
-    pld->mst_id = topology_->port_master_id(master_port_);
+  pld->mst_id = topology_->port_master_id(master_port_);
+  if (req_type == aic_req_type_t::RD_REQ) {
+    pld->cmd = PldCmd::RD;
+  } else if (req_type == aic_req_type_t::WR_REQ) {
+    pld->cmd = PldCmd::WR;
+  } else {
+    pld->cmd = PldCmd::WR_DAT;
   }
   prepare_request_metadata(pld, req_type);
 
@@ -175,11 +181,13 @@ bool Tm_mesh_inf::issue_cmd_to_ring(aic_req_type_t req_type, p_tm_pld_t pld) {
     }
 
     auto grant = wr_grant_fifo_->front();
-    if (!flow_ctrl_->wr_grant_match(grant.target_id, grant.gid,
-                                    tm_mesh_pld_target_id(pld), pld,
+    if (!flow_ctrl_->wr_grant_match(tm_pld_target_id(grant), grant->gid,
+                                    tm_pld_target_id(pld), pld,
                                     cfg_->strict_wr_grant_order)) {
       return false;
     }
+  } else if (!reserve_transaction_osd(req_type)) {
+    return false;
   }
 
   router_fifo->push_back(pld);
@@ -187,6 +195,18 @@ bool Tm_mesh_inf::issue_cmd_to_ring(aic_req_type_t req_type, p_tm_pld_t pld) {
 }
 
 void Tm_mesh_inf::pop_pending_grant() { wr_grant_fifo_->pop_front(); }
+
+void Tm_mesh_inf::release_read_osd() {
+  if (rd_outstanding_ > 0) {
+    rd_outstanding_--;
+  }
+}
+
+void Tm_mesh_inf::release_write_osd() {
+  if (wr_outstanding_ > 0) {
+    wr_outstanding_--;
+  }
+}
 
 bool Tm_mesh_inf::accept_read_response(p_tm_pld_t rsp, uint32_t lane) {
   if (retire_api_read_response(rsp)) {
@@ -198,8 +218,7 @@ bool Tm_mesh_inf::accept_read_response(p_tm_pld_t rsp, uint32_t lane) {
   return true;
 }
 
-bool Tm_mesh_inf::accept_write_request_response(p_tm_pld_t rsp,
-                                                const TmMeshGrant& grant) {
+bool Tm_mesh_inf::accept_write_request_response(p_tm_pld_t rsp) {
   bool is_api_write = is_api_write_request(rsp);
   if (wr_grant_fifo_->full()) {
     return false;
@@ -209,12 +228,14 @@ bool Tm_mesh_inf::accept_write_request_response(p_tm_pld_t rsp,
     if (router_wr_dat_q_->full()) {
       return false;
     }
-    if (!flow_ctrl_->wr_grant_match(grant.target_id, grant.gid,
-                                    tm_mesh_pld_target_id(rsp), rsp,
+    if (!flow_ctrl_->wr_grant_match(tm_pld_target_id(rsp), rsp->gid,
+                                    tm_pld_target_id(rsp), rsp,
                                     cfg_->strict_wr_grant_order)) {
       return false;
     }
-    wr_grant_fifo_->push_back(grant);
+    wr_grant_fifo_->push_back(rsp);
+    rsp->cmd = PldCmd::WR_DAT;
+    rsp->type_id = static_cast<uint32_t>(aic_req_type_t::WR_DAT);
     router_wr_dat_q_->push_back(rsp);
     return true;
   }
@@ -224,7 +245,7 @@ bool Tm_mesh_inf::accept_write_request_response(p_tm_pld_t rsp,
     return false;
   }
 
-  wr_grant_fifo_->push_back(grant);
+  wr_grant_fifo_->push_back(rsp);
   retire_tracked_request(rsp);
   recv_wr_dat();
   return true;
@@ -252,8 +273,34 @@ uint32_t Tm_mesh_inf::response_channel(aic_req_type_t req_type,
 void Tm_mesh_inf::prepare_request_metadata(p_tm_pld_t pld,
                                            aic_req_type_t req_type) {
   auto target_id = topology_->decode_target(pld->addr);
-  tm_mesh_pld_set_route(pld, target_id, topology_->master_node(master_port_),
-                        topology_->target_node(target_id), req_type, time());
+  tm_pld_set_ring_route(pld, static_cast<uint32_t>(req_type), target_id,
+                        topology_->master_node(master_port_),
+                        topology_->target_node(target_id), time());
+}
+
+bool Tm_mesh_inf::can_reserve_master_osd(aic_req_type_t req_type) const {
+  if (req_type == aic_req_type_t::RD_REQ) {
+    return rd_outstanding_ < cfg_->master_rd_osd;
+  }
+  if (req_type == aic_req_type_t::WR_REQ) {
+    return wr_outstanding_ < cfg_->master_wr_osd;
+  }
+  return true;
+}
+
+bool Tm_mesh_inf::reserve_transaction_osd(aic_req_type_t req_type) {
+  if (!can_reserve_master_osd(req_type)) {
+    return false;
+  }
+  if (global_osd_reserve_ && !global_osd_reserve_(req_type)) {
+    return false;
+  }
+  if (req_type == aic_req_type_t::RD_REQ) {
+    rd_outstanding_++;
+  } else if (req_type == aic_req_type_t::WR_REQ) {
+    wr_outstanding_++;
+  }
+  return true;
 }
 
 void Tm_mesh_inf::track_api_request(uint32_t req_id, p_tm_pld_t req,
@@ -282,8 +329,8 @@ bool Tm_mesh_inf::retire_api_read_response(p_tm_pld_t rsp) {
     return false;
   }
 
-  if (it->second.rsp_expected == 1 && rsp->latency > 1) {
-    it->second.rsp_expected = rsp->latency;
+  if (it->second.rsp_expected == 1 && tm_pld_rsp_count(rsp) > 1) {
+    it->second.rsp_expected = tm_pld_rsp_count(rsp);
   }
   it->second.rsp_seen++;
   if (it->second.rsp_seen >= it->second.rsp_expected) {

@@ -72,7 +72,7 @@ uint32_t
 TmMeshTopology::find_master_port(uint32_t mst_id) const
 {
     auto it = master_id_to_port_.find(mst_id);
-    return it == master_id_to_port_.end() ? 0 : it->second;
+    return it == master_id_to_port_.end() ? UINT32_MAX : it->second;
 }
 
 uint32_t

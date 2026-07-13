@@ -226,7 +226,7 @@ bool TmMem::check_input(aic_req_type_t req_type) {
         rw_inf_->pop_pld((uint32_t)req_type);
         // calc latency
         uint32_t rsp_num = (pld->chan == 10 && req_type == aic_req_type_t::RD_REQ) ? ceil((float)pld->size / 128) : 1;
-        pld->latency = rsp_num;
+        pld->rsp_count = rsp_num;
         for (uint32_t i=0; i<rsp_num; ++i) {
             if(cfg_->inorder_acc) { 
                 latency = min_latency + latency_var/2; 

@@ -43,7 +43,7 @@ using p_tm_mesh_target_port_t = std::shared_ptr<tm_mesh_target_port_t>;
  * target ports. The fine-grained queue events stay inside each submodule; the
  * fabric callbacks only advance the affected link/router path.
  */
-class TmMeshFabric : public tm_engine::TmModule
+class TmMeshFabric : public tm_engine::TmModule, public TmRingLocalEndpoint
 {
   public:
     TmMeshFabric();
@@ -84,39 +84,20 @@ class TmMeshFabric : public tm_engine::TmModule
 
     std::unordered_map<uint64_t, TmMeshRdRspState> rd_rsp_states_;
 
-    std::vector<tm_engine::tm_time_t> next_rd_issue_time_;
-    std::vector<tm_engine::tm_time_t> next_wr_req_issue_time_;
-    std::vector<tm_engine::tm_time_t> next_wr_dat_issue_time_;
     tm_engine::p_tm_clk_t token_clk_ = nullptr;
 
     uint32_t ring_router_count_ = 0;
     uint32_t ring_link_latency_ = 1;
+    uint32_t global_outstanding_ = 0;
 
     std::shared_ptr<TmMeshTopology> topology_;
     std::shared_ptr<TmBusFlowCtrl> flow_ctrl_;
 
   protected:
-    bool resolve_candidate_route(uint32_t router_id,
-                                 TmMeshRouteCandidate& cand);
-    bool check_candidate_ready(uint32_t router_id,
-                               const TmMeshRouteCandidate& cand);
-    bool commit_router_candidate(uint32_t router_id,
-                                 const TmMeshRouteCandidate& cand);
-    bool commit_local_router_candidate(uint32_t router_id,
-                                       const TmMeshRouteCandidate& cand);
-    bool commit_link_router_candidate(uint32_t router_id,
-                                      const TmMeshRouteCandidate& cand);
-    TmRingSubnet ring_subnet(uint32_t traffic_class) const;
-
-    void send_target_reqs();
-    void send_target_req(uint32_t target_id, aic_req_type_t req_type);
-    void schedule_target_issue_retry(uint32_t target_id, aic_req_type_t req_type,
-                                     tm_engine::tm_time_t delay);
-
-    void recv_target_rsps();
-    void recv_target_rd_rsp(uint32_t target_id, uint32_t lane);
-    void recv_target_wr_req_rsp(uint32_t target_id);
-    void recv_target_wr_dat_rsp(uint32_t target_id);
+    bool can_accept_local(p_tm_pld_t pld) override;
+    bool accept_local(p_tm_pld_t pld) override;
+    bool reserve_global_osd(aic_req_type_t req_type);
+    void release_global_osd(aic_req_type_t req_type);
 
     p_tm_com_que_t get_router_req_fifo(uint32_t router_id,
                                        TmMeshPortDir in_dir,

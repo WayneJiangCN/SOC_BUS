@@ -88,17 +88,6 @@ tm_mesh_opposite_dir(TmMeshPortDir dir)
     return tm_ring_opposite_dir(dir);
 }
 
-struct TmMeshRouteCandidate
-{
-    bool valid = false;
-    TmMeshPortDir in_dir = TmMeshPortDir::LOCAL;
-    TmMeshPortDir out_dir = TmMeshPortDir::LOCAL;
-    uint32_t traffic_class = 0;
-    aic_req_type_t req_type = aic_req_type_t::RD_REQ;
-    uint32_t lane = 0;
-    p_tm_pld_t pld = nullptr;
-};
-
 struct TmMeshCfg
 {
     std::string name = "";
@@ -111,10 +100,18 @@ struct TmMeshCfg
 
 
     uint32_t master_wr_grant_fifo_depth = 8;
+    uint32_t master_rd_osd = 8;
+    uint32_t master_wr_osd = 8;
+    uint32_t global_osd = 128;
 
     uint32_t ring_req_fifo_depth = 4;
     uint32_t ring_rsp_fifo_depth = 4;
     uint32_t ring_link_latency = 1;
+    uint32_t ring_link_width_bytes = 16;
+    uint32_t ring_req_header_bytes = 16;
+    uint32_t ring_rsp_header_bytes = 16;
+    uint32_t ring_req_link_max_inflight = 8;
+    uint32_t ring_rsp_link_max_inflight = 8;
 
     bool strict_wr_grant_order = true;
 
@@ -124,12 +121,12 @@ struct TmMeshCfg
 using tm_mesh_cfg_t = TmMeshCfg;
 using p_tm_mesh_cfg_t = std::shared_ptr<tm_mesh_cfg_t>;
 
-struct TmMeshGrant
+class TmRingLocalEndpoint
 {
-    uint32_t gid = 0;
-    uint32_t target_id = 0;
-    uint32_t chan = 0;
-    uint32_t dbid = 0;
+  public:
+    virtual ~TmRingLocalEndpoint() = default;
+    virtual bool can_accept_local(p_tm_pld_t pld) = 0;
+    virtual bool accept_local(p_tm_pld_t pld) = 0;
 };
 
 struct TmMeshRdRspState

@@ -33,10 +33,14 @@ class TmBusFlowCtrl
 
     uint32_t calc_issue_busy_cycles(uint32_t target_id, p_tm_pld_t pld) const;
     uint32_t calc_rsp_busy_cycles(uint32_t target_id, p_tm_pld_t pld) const;
+    uint32_t calc_rsp_busy_cycles(uint32_t target_id, p_tm_pld_t pld,
+                                  aic_req_type_t rsp_type) const;
     uint32_t target_outstanding(uint32_t target_id) const;
 
   private:
     uint32_t calc_payload_cycles(uint32_t width, uint32_t size) const;
+    uint32_t calc_rsp_payload_size(p_tm_pld_t pld,
+                                   aic_req_type_t rsp_type) const;
     uint32_t calc_hotspot_penalty(uint32_t target_id) const;
 
   private:

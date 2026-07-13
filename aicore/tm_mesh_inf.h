@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -16,7 +17,7 @@
 #include "tm_mesh_types.h"
 #include "tm_que.h"
 
-using tm_mesh_grant_que_t = TmQue<TmMeshGrant>;
+using tm_mesh_grant_que_t = TmQue<p_tm_pld_t>;
 using p_tm_mesh_grant_que_t = std::shared_ptr<tm_mesh_grant_que_t>;
 
 class TmBusFlowCtrl;
@@ -24,6 +25,7 @@ using tm_mesh_topology_t = TmMeshTopology;
 using p_tm_mesh_topology_t = std::shared_ptr<tm_mesh_topology_t>;
 using tm_mesh_flow_ctrl_t = TmBusFlowCtrl;
 using p_tm_mesh_flow_ctrl_t = std::shared_ptr<tm_mesh_flow_ctrl_t>;
+using tm_mesh_osd_reserve_t = std::function<bool(aic_req_type_t)>;
 
 struct TmRingInfApiReq
 {
@@ -53,7 +55,8 @@ class Tm_mesh_inf : public tm_engine::TmModule
     void attach(p_tm_com_inf_t inf);
     void attach(uint32_t master_port, p_tm_mesh_topology_t topology,
                 p_tm_mesh_flow_ctrl_t flow_ctrl, p_tm_com_que_t router_req_q,
-                p_tm_com_que_t router_wr_dat_q);
+                p_tm_com_que_t router_wr_dat_q,
+                tm_mesh_osd_reserve_t global_osd_reserve = nullptr);
     void set_master_id(uint32_t mst_id);
 
     uint32_t send_rd_req(uint64_t address, uint32_t size);
@@ -68,10 +71,11 @@ class Tm_mesh_inf : public tm_engine::TmModule
     void recv_wr_dat();
 
     void pop_pending_grant();
+    void release_read_osd();
+    void release_write_osd();
 
     bool accept_read_response(p_tm_pld_t rsp, uint32_t lane);
-    bool accept_write_request_response(p_tm_pld_t rsp,
-                                       const TmMeshGrant& grant);
+    bool accept_write_request_response(p_tm_pld_t rsp);
     bool accept_write_data_response(p_tm_pld_t rsp);
 
   public:
@@ -89,11 +93,14 @@ class Tm_mesh_inf : public tm_engine::TmModule
     p_tm_mesh_flow_ctrl_t flow_ctrl_ = nullptr;
     p_tm_com_que_t router_req_q_ = nullptr;
     p_tm_com_que_t router_wr_dat_q_ = nullptr;
+    tm_mesh_osd_reserve_t global_osd_reserve_ = nullptr;
 
     std::vector<std::pair<uint32_t, p_tm_pld_t>> bus_req_list_;
     std::unordered_map<uint32_t, TmRingInfApiReq> api_req_map_;
 
     uint32_t req_id_ = 0;
+    uint32_t rd_outstanding_ = 0;
+    uint32_t wr_outstanding_ = 0;
 
   protected:
     uint32_t response_channel(aic_req_type_t req_type,
@@ -101,6 +108,8 @@ class Tm_mesh_inf : public tm_engine::TmModule
 
     bool issue_cmd_to_ring(aic_req_type_t req_type, p_tm_pld_t pld);
     void prepare_request_metadata(p_tm_pld_t pld, aic_req_type_t req_type);
+    bool can_reserve_master_osd(aic_req_type_t req_type) const;
+    bool reserve_transaction_osd(aic_req_type_t req_type);
     void track_api_request(uint32_t req_id, p_tm_pld_t req,
                            aic_req_type_t req_type);
     void retire_tracked_request(p_tm_pld_t rsp);

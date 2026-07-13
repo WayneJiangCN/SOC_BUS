@@ -1,6 +1,8 @@
 #include "tm_bus_flow_ctrl.h"
 
 #include <algorithm>
+#include <cassert>
+#include <iostream>
 
 using namespace std;
 using namespace tm_engine;
@@ -179,6 +181,12 @@ TmBusFlowCtrl::release_target_credit(uint32_t target_id, aic_req_type_t req_type
                      target_cfg->wr_slot_credit_max);
     }
 
+    if (target_outstanding_[target_id] == 0) {
+        std::cerr << "TmBusFlowCtrl: target outstanding underflow on target "
+                  << target_id << std::endl;
+        assert(false && "target outstanding underflow");
+        return;
+    }
     target_outstanding_[target_id]--;
 }
 
@@ -199,13 +207,21 @@ TmBusFlowCtrl::calc_issue_busy_cycles(uint32_t target_id, p_tm_pld_t pld) const
 uint32_t
 TmBusFlowCtrl::calc_rsp_busy_cycles(uint32_t target_id, p_tm_pld_t pld) const
 {
+    return calc_rsp_busy_cycles(target_id, pld, aic_req_type_t::RD_REQ);
+}
+
+uint32_t
+TmBusFlowCtrl::calc_rsp_busy_cycles(uint32_t target_id, p_tm_pld_t pld,
+                                    aic_req_type_t rsp_type) const
+{
     auto target_cfg = cfg_->targets[target_id];
+    uint32_t payload_size = calc_rsp_payload_size(pld, rsp_type);
 
     /* 响应方向和请求方向一样，只是使用 response_latency。 */
     return std::max<uint32_t>(
         1,
         target_cfg->response_latency + target_cfg->header_latency +
-            calc_payload_cycles(target_cfg->width, pld->size) +
+            calc_payload_cycles(target_cfg->width, payload_size) +
             calc_hotspot_penalty(target_id));
 }
 
@@ -220,6 +236,19 @@ TmBusFlowCtrl::calc_payload_cycles(uint32_t width, uint32_t size) const
 {
     /* 用 width 粗粒度折算 payload 需要多少拍传完。 */
     return std::max<uint32_t>(1, (size + width - 1) / width);
+}
+
+uint32_t
+TmBusFlowCtrl::calc_rsp_payload_size(p_tm_pld_t pld,
+                                     aic_req_type_t rsp_type) const
+{
+    if (pld == nullptr) {
+        return 0;
+    }
+    if (rsp_type == aic_req_type_t::RD_REQ) {
+        return pld->size;
+    }
+    return 0;
 }
 
 uint32_t
