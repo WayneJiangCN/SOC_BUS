@@ -10,18 +10,9 @@
 #include "tm_bus_types.h"
 #include "tm_mem.h"
 
-enum class tm_mesh_txn_state_t
-{
-    ALLOCATED,
-    IN_INGRESS_FIFO,
-    IN_REQ_MESH,
-    IN_TARGET_FIFO,
-    WAIT_WR_REQ_RSP,
-    WAIT_WR_DAT_RSP,
-    WAIT_RD_RSP,
-    IN_RSP_MESH,
-    DONE
-};
+using PldCmd = pld_cmd_t;
+using plt_cmt_t = PldCmd;
+using plt_cmd_t = PldCmd;
 
 using tm_mesh_target_cfg_t = tm_bus_target_cfg_t;
 using p_tm_mesh_target_cfg_t = p_tm_bus_target_cfg_t;
@@ -65,6 +56,17 @@ tm_mesh_opposite_dir(TmMeshPortDir dir)
     }
 }
 
+struct TmMeshRouteCandidate
+{
+    bool valid = false;
+    TmMeshPortDir in_dir = TmMeshPortDir::LOCAL;
+    TmMeshPortDir out_dir = TmMeshPortDir::LOCAL;
+    uint32_t traffic_class = 0;
+    aic_req_type_t req_type = aic_req_type_t::RD_REQ;
+    uint32_t lane = 0;
+    p_tm_pld_t pld = nullptr;
+};
+
 struct TmMeshCfg
 {
     std::string name = "";
@@ -75,9 +77,7 @@ struct TmMeshCfg
     uint32_t master_inf_depth = 4;
     uint32_t target_inf_depth = 4;
 
-    uint32_t master_rd_req_fifo_depth = 4;
-    uint32_t master_wr_req_fifo_depth = 4;
-    uint32_t master_wr_dat_fifo_depth = 8;
+
     uint32_t master_wr_grant_fifo_depth = 8;
 
     uint32_t mesh_rows = 1;
@@ -103,16 +103,8 @@ struct TmMeshGrant
     uint32_t dbid = 0;
 };
 
-struct TmMeshTxnCtx
+struct TmMeshRdRspState
 {
-    uint32_t master_port = 0;
-    uint32_t target_id = 0;
-    uint32_t src_node = 0;
-    uint32_t dst_node = 0;
-    aic_req_type_t req_type = aic_req_type_t::RD_REQ;
-    tm_mesh_txn_state_t state = tm_mesh_txn_state_t::ALLOCATED;
-    uint32_t size = 0;
-    tm_engine::tm_time_t issue_time = 0;
     uint32_t rsp_expected = 1;
     uint32_t rsp_seen = 0;
     bool slot_released = false;

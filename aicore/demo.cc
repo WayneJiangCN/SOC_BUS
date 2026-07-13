@@ -17,6 +17,8 @@
 using namespace std;
 using namespace tm_engine;
 
+using PldCmd = pld_cmd_t;
+
 /*
  * demo.cc:
  * 示例流量发生器实现文件。
@@ -221,7 +223,7 @@ void DemoModule::read_mem()
     if (uop_que_->empty())
         return;
     auto uop = uop_que_->front();
-    auto rd_pld = tm_make_pld(pld_cmd_t::RD, uop->addr, uop->size);
+    auto rd_pld = tm_make_pld(PldCmd::RD, uop->addr, uop->size);
     if (read_port_->send(rd_pld))
     {
         uop_que_->pop_front();
@@ -323,7 +325,7 @@ void DemoModule::pipeline()
     uint32_t value = static_cast<uint32_t>(uop->result);
     uint8_t *write_buf = write_buf_pool_[buf_id];
     memcpy(write_buf, &value, sizeof(value));
-    auto wr_pld = tm_make_pld(pld_cmd_t::WR, uop->addr, uop->size, write_buf);
+    auto wr_pld = tm_make_pld(PldCmd::WR, uop->addr, uop->size, write_buf);
     wr_pld->tnx_id = buf_id;
     if (write_port_->send(wr_pld))
     {
