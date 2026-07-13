@@ -37,7 +37,7 @@ using tm_mesh_target_port_t = TmMeshTargetPort;
 using p_tm_mesh_target_port_t = std::shared_ptr<tm_mesh_target_port_t>;
 
 /*
- * Top-level mesh-lite interconnect model.
+ * Top-level ring interconnect model.
  *
  * Fabric owns the high-level topology objects: master NIUs, routers, links and
  * target ports. The fine-grained queue events stay inside each submodule; the
@@ -89,10 +89,8 @@ class TmMeshFabric : public tm_engine::TmModule
     std::vector<tm_engine::tm_time_t> next_wr_dat_issue_time_;
     tm_engine::p_tm_clk_t token_clk_ = nullptr;
 
-    uint32_t mesh_router_count_ = 0;
-    uint32_t mesh_rows_ = 1;
-    uint32_t mesh_cols_ = 1;
-    uint32_t mesh_link_latency_ = 1;
+    uint32_t ring_router_count_ = 0;
+    uint32_t ring_link_latency_ = 1;
 
     std::shared_ptr<TmMeshTopology> topology_;
     std::shared_ptr<TmBusFlowCtrl> flow_ctrl_;
@@ -108,6 +106,7 @@ class TmMeshFabric : public tm_engine::TmModule
                                        const TmMeshRouteCandidate& cand);
     bool commit_link_router_candidate(uint32_t router_id,
                                       const TmMeshRouteCandidate& cand);
+    TmRingSubnet ring_subnet(uint32_t traffic_class) const;
 
     void send_target_reqs();
     void send_target_req(uint32_t target_id, aic_req_type_t req_type);
@@ -119,16 +118,19 @@ class TmMeshFabric : public tm_engine::TmModule
     void recv_target_wr_req_rsp(uint32_t target_id);
     void recv_target_wr_dat_rsp(uint32_t target_id);
 
-    p_tm_com_que_t get_mesh_req_fifo(uint32_t router_id, TmMeshPortDir in_dir,
-                                     aic_req_type_t req_type) const;
-    p_tm_com_que_t get_mesh_rd_rsp_fifo(uint32_t router_id, TmMeshPortDir in_dir,
-                                        uint32_t lane) const;
-    p_tm_com_que_t get_mesh_wr_req_rsp_fifo(uint32_t router_id,
-                                            TmMeshPortDir in_dir) const;
-    p_tm_com_que_t get_mesh_wr_dat_rsp_fifo(uint32_t router_id,
-                                            TmMeshPortDir in_dir) const;
+    p_tm_com_que_t get_router_req_fifo(uint32_t router_id,
+                                       TmMeshPortDir in_dir,
+                                       aic_req_type_t req_type) const;
+    p_tm_com_que_t get_router_rd_rsp_fifo(uint32_t router_id,
+                                          TmMeshPortDir in_dir,
+                                          uint32_t lane) const;
+    p_tm_com_que_t get_router_wr_req_rsp_fifo(uint32_t router_id,
+                                              TmMeshPortDir in_dir) const;
+    p_tm_com_que_t get_router_wr_dat_rsp_fifo(uint32_t router_id,
+                                              TmMeshPortDir in_dir) const;
 
-    p_tm_mesh_link_t get_mesh_link(uint32_t src_router_id, TmMeshPortDir src_dir,
+    p_tm_mesh_link_t get_ring_link(uint32_t src_router_id,
+                                   TmMeshPortDir src_dir,
                                    uint32_t dst_router_id,
                                    TmMeshPortDir dst_dir) const;
     uint64_t make_link_key(uint32_t src_router_id, TmMeshPortDir src_dir,

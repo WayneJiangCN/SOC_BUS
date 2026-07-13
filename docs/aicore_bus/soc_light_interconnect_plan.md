@@ -1,4 +1,4 @@
-# SoC 级轻量总线/Mesh 模型技术方案
+# SoC 级轻量总线/Ring 模型技术方案
 
 ## 1. 目标
 
@@ -7,7 +7,7 @@
 目标不是复刻完整 NoC 微结构，而是在较低复杂度下覆盖主要性能趋势，满足：
 
 1. 多 core 环境适配，不依赖完整 SoC 平台也能跑 ESL 用例。
-2. 能建模总线/mesh 延迟、交织方案、关键瓶颈。
+2. 能建模总线/ring 延迟、交织方案、关键瓶颈。
 3. 总线延迟、交织、关键路径 OSD、带宽和 busy time 都可配。
 4. 目标精度以系统级趋势为主，追求大约 80% 左右，而不是 router 微结构逐周期吻合。
 
@@ -17,7 +17,7 @@
 
 当前 `BUS/aicore` 这套代码，不宜再把目标描述成“传统 bus”；更准确的说法是：
 
-**SoC 级轻量 interconnect / mesh-lite 模型**
+**SoC 级轻量 interconnect / ring-lite 模型**
 
 原因：
 
@@ -187,10 +187,6 @@ Core / BIU
 
 - `num_masters`
 - `num_targets`
-- `mesh_rows`
-- `mesh_cols`
-- `mesh_x_first`
-- `mesh_link_latency`
 
 ### 10.2 endpoint 参数
 
@@ -203,9 +199,9 @@ Core / BIU
 
 ### 10.3 router/link 参数
 
-- `mesh_req_fifo_depth`
-- `mesh_rsp_fifo_depth`
-- `mesh_link_latency`
+- `ring_req_fifo_depth`
+- `ring_rsp_fifo_depth`
+- `ring_link_latency`
 
 ### 10.4 target 参数
 
@@ -252,7 +248,7 @@ Core / BIU
 
 对你的目标，我建议把当前方案正式定格为：
 
-**SoC 级轻量 interconnect / mesh-lite 模型**
+**SoC 级轻量 interconnect / ring-lite 模型**
 
 并且后续开发只做两类事情：
 

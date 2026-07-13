@@ -73,8 +73,8 @@ class TmMeshRouter : public tm_engine::TmModule
                                    uint32_t traffic_class) const;
     p_tm_pld_t front_packet(TmMeshPortDir in_dir, uint32_t traffic_class) const;
     void pop_packet(TmMeshPortDir in_dir, uint32_t traffic_class);
-    bool pick_output_winner(TmMeshPortDir out_dir, uint32_t candidate_count,
-                            uint32_t& winner);
+    bool pick_output_winner(TmMeshPortDir out_dir, TrafficKind traffic_kind,
+                            uint32_t candidate_count, uint32_t& winner);
 
     std::string name_;
     tm_engine::p_tm_clk_t clk_ = nullptr;

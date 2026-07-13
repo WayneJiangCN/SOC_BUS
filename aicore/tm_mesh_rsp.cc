@@ -21,8 +21,8 @@ void
 TmMeshFabric::recv_target_rd_rsp(uint32_t target_id, uint32_t lane)
 {
     auto target_port = target_ports_[target_id];
-    auto router_fifo = get_mesh_rd_rsp_fifo(topology_->target_node(target_id),
-                                            TmMeshPortDir::LOCAL, lane);
+    auto router_fifo = get_router_rd_rsp_fifo(
+        topology_->target_node(target_id), TmMeshPortDir::LOCAL, lane);
 
     while (target_port->has_response(aic_req_type_t::RD_REQ, lane) &&
            !router_fifo->full()) {
@@ -37,7 +37,7 @@ void
 TmMeshFabric::recv_target_wr_req_rsp(uint32_t target_id)
 {
     auto target_port = target_ports_[target_id];
-    auto router_fifo = get_mesh_wr_req_rsp_fifo(
+    auto router_fifo = get_router_wr_req_rsp_fifo(
         topology_->target_node(target_id), TmMeshPortDir::LOCAL);
 
     while (target_port->has_response(aic_req_type_t::WR_REQ) &&
@@ -53,7 +53,7 @@ void
 TmMeshFabric::recv_target_wr_dat_rsp(uint32_t target_id)
 {
     auto target_port = target_ports_[target_id];
-    auto router_fifo = get_mesh_wr_dat_rsp_fifo(
+    auto router_fifo = get_router_wr_dat_rsp_fifo(
         topology_->target_node(target_id), TmMeshPortDir::LOCAL);
 
     while (target_port->has_response(aic_req_type_t::WR_DAT) &&

@@ -33,16 +33,16 @@ TmMeshRouter::config(const std::string& name, p_tm_clk_t clk,
     rd_rsp_qs_.clear();
     wr_req_rsp_qs_.clear();
     wr_dat_rsp_qs_.clear();
-    output_rr_ptr_.assign(tm_mesh_port_count(), 0);
+    output_rr_ptr_.assign(tm_ring_port_count() * tm_ring_subnet_count(), 0);
 
-    for (uint32_t port = 0; port < tm_mesh_port_count(); ++port) {
+    for (uint32_t port = 0; port < tm_ring_port_count(); ++port) {
         req_qs_.push_back(tm_make_com_que(
             clk_, name_ + "_req_q_" + std::to_string(port),
-            cfg_->mesh_req_fifo_depth));
+            cfg_->ring_req_fifo_depth));
 
         wr_dat_qs_.push_back(tm_make_com_que(
             clk_, name_ + "_wr_dat_q_" + std::to_string(port),
-            cfg_->mesh_req_fifo_depth));
+            cfg_->ring_req_fifo_depth));
 
         std::vector<p_tm_com_que_t> lane_qs;
         for (uint32_t lane = 0; lane < cfg_->rd_rsp_port_num; ++lane) {
@@ -50,17 +50,17 @@ TmMeshRouter::config(const std::string& name, p_tm_clk_t clk,
                 clk_,
                 name_ + "_rd_rsp_q_" + std::to_string(port) + "_" +
                     std::to_string(lane),
-                cfg_->mesh_rsp_fifo_depth));
+                cfg_->ring_rsp_fifo_depth));
         }
         rd_rsp_qs_.push_back(lane_qs);
 
         wr_req_rsp_qs_.push_back(tm_make_com_que(
             clk_, name_ + "_wr_req_rsp_q_" + std::to_string(port),
-            cfg_->mesh_rsp_fifo_depth));
+            cfg_->ring_rsp_fifo_depth));
 
         wr_dat_rsp_qs_.push_back(tm_make_com_que(
             clk_, name_ + "_wr_dat_rsp_q_" + std::to_string(port),
-            cfg_->mesh_rsp_fifo_depth));
+            cfg_->ring_rsp_fifo_depth));
     }
 
     auto route_req_proc = TM_MAKE_CPROC(&TmMeshRouter::route_request);
@@ -109,7 +109,7 @@ TmMeshRouter::reset()
     for (auto& q : wr_dat_rsp_qs_) {
         q->clear();
     }
-    output_rr_ptr_.assign(tm_mesh_port_count(), 0);
+    output_rr_ptr_.assign(tm_ring_port_count() * tm_ring_subnet_count(), 0);
 }
 
 bool
@@ -185,38 +185,38 @@ TmMeshRouter::traffic_kind(uint32_t traffic_class) const
 p_tm_com_que_t
 TmMeshRouter::req_q(TmMeshPortDir in_dir) const
 {
-    return req_qs_[tm_mesh_port_index(in_dir)];
+    return req_qs_[tm_ring_port_index(in_dir)];
 }
 
 p_tm_com_que_t
 TmMeshRouter::wr_dat_q(TmMeshPortDir in_dir) const
 {
-    return wr_dat_qs_[tm_mesh_port_index(in_dir)];
+    return wr_dat_qs_[tm_ring_port_index(in_dir)];
 }
 
 p_tm_com_que_t
 TmMeshRouter::rd_rsp_q(TmMeshPortDir in_dir, uint32_t lane) const
 {
-    return rd_rsp_qs_[tm_mesh_port_index(in_dir)][lane];
+    return rd_rsp_qs_[tm_ring_port_index(in_dir)][lane];
 }
 
 p_tm_com_que_t
 TmMeshRouter::wr_req_rsp_q(TmMeshPortDir in_dir) const
 {
-    return wr_req_rsp_qs_[tm_mesh_port_index(in_dir)];
+    return wr_req_rsp_qs_[tm_ring_port_index(in_dir)];
 }
 
 p_tm_com_que_t
 TmMeshRouter::wr_dat_rsp_q(TmMeshPortDir in_dir) const
 {
-    return wr_dat_rsp_qs_[tm_mesh_port_index(in_dir)];
+    return wr_dat_rsp_qs_[tm_ring_port_index(in_dir)];
 }
 
 p_tm_com_que_t
 TmMeshRouter::queue_for_class(TmMeshPortDir in_dir,
                               uint32_t traffic_class) const
 {
-    uint32_t port = tm_mesh_port_index(in_dir);
+    uint32_t port = tm_ring_port_index(in_dir);
     if (traffic_class == REQ_CLASS) {
         return req_qs_[port];
     }
@@ -256,7 +256,7 @@ TmMeshRouter::select_output_candidate(TmMeshPortDir out_dir,
     std::vector<RouteCandidate> candidates;
     uint32_t class_num = traffic_class_count();
 
-    for (uint32_t port = 0; port < tm_mesh_port_count(); ++port) {
+    for (uint32_t port = 0; port < tm_ring_port_count(); ++port) {
         auto in_dir = static_cast<TmMeshPortDir>(port);
         for (uint32_t cls = 0; cls < class_num; ++cls) {
             if (traffic_kind(cls) != traffic_kind_filter) {
@@ -284,7 +284,8 @@ TmMeshRouter::select_output_candidate(TmMeshPortDir out_dir,
     }
 
     uint32_t winner_id = 0;
-    if (!pick_output_winner(out_dir, candidates.size(), winner_id)) {
+    if (!pick_output_winner(out_dir, traffic_kind_filter, candidates.size(),
+                            winner_id)) {
         return false;
     }
 
@@ -295,7 +296,7 @@ TmMeshRouter::select_output_candidate(TmMeshPortDir out_dir,
 void
 TmMeshRouter::advance_traffic(TrafficKind traffic_kind_filter)
 {
-    for (uint32_t port = 0; port < tm_mesh_port_count(); ++port) {
+    for (uint32_t port = 0; port < tm_ring_port_count(); ++port) {
         auto out_dir = static_cast<TmMeshPortDir>(port);
         RouteCandidate winner;
         if (!select_output_candidate(out_dir, traffic_kind_filter, winner)) {
@@ -309,14 +310,19 @@ TmMeshRouter::advance_traffic(TrafficKind traffic_kind_filter)
 }
 
 bool
-TmMeshRouter::pick_output_winner(TmMeshPortDir out_dir, uint32_t candidate_count,
-                                 uint32_t& winner)
+TmMeshRouter::pick_output_winner(TmMeshPortDir out_dir,
+                                 TrafficKind traffic_kind,
+                                 uint32_t candidate_count, uint32_t& winner)
 {
     if (candidate_count == 0) {
         return false;
     }
 
-    uint32_t out_idx = tm_mesh_port_index(out_dir);
+    uint32_t subnet = traffic_kind == TrafficKind::RSP
+                          ? tm_ring_subnet_index(TmRingSubnet::RSP)
+                          : tm_ring_subnet_index(TmRingSubnet::REQ);
+    uint32_t out_idx = subnet * tm_ring_port_count() +
+                       tm_ring_port_index(out_dir);
     auto& start = output_rr_ptr_[out_idx];
     if (start >= candidate_count) {
         start = 0;

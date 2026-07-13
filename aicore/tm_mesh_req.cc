@@ -64,9 +64,10 @@ TmMeshFabric::check_candidate_ready(
     }
 
     uint32_t next_router = topology_->neighbor(router_id, cand.out_dir);
-    auto link = get_mesh_link(router_id, cand.out_dir, next_router,
-                              tm_mesh_opposite_dir(cand.out_dir));
-    return link != nullptr && link->can_send(time());
+    auto link = get_ring_link(router_id, cand.out_dir, next_router,
+                              tm_ring_opposite_dir(cand.out_dir));
+    return link != nullptr && link->can_send(ring_subnet(cand.traffic_class),
+                                             time());
 }
 
 bool
@@ -147,14 +148,25 @@ TmMeshFabric::commit_link_router_candidate(
     uint32_t router_id, const TmMeshRouteCandidate& cand)
 {
     uint32_t next_router = topology_->neighbor(router_id, cand.out_dir);
-    auto dst_dir = tm_mesh_opposite_dir(cand.out_dir);
-    auto link = get_mesh_link(router_id, cand.out_dir, next_router, dst_dir);
-    if (link == nullptr || !link->can_send(time())) {
+    auto dst_dir = tm_ring_opposite_dir(cand.out_dir);
+    auto link = get_ring_link(router_id, cand.out_dir, next_router, dst_dir);
+    auto subnet = ring_subnet(cand.traffic_class);
+    if (link == nullptr || !link->can_send(subnet, time())) {
         return false;
     }
 
-    link->enqueue(cand.pld, cand.traffic_class, time());
+    link->enqueue(subnet, cand.pld, cand.traffic_class, time());
     return true;
+}
+
+TmRingSubnet
+TmMeshFabric::ring_subnet(uint32_t traffic_class) const
+{
+    if (traffic_class == TmMeshRouter::REQ_CLASS ||
+        traffic_class == TmMeshRouter::WR_DAT_CLASS) {
+        return TmRingSubnet::REQ;
+    }
+    return TmRingSubnet::RSP;
 }
 
 bool

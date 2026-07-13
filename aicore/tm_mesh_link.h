@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "tm_clock.h"
 #include "tm_engine.h"
@@ -37,8 +38,8 @@ class TmMeshLink : public tm_engine::TmModule
     void reset();
     bool idle() const;
 
-    bool can_send(tm_engine::tm_time_t now) const;
-    void enqueue(p_tm_pld_t pld, uint32_t traffic_class,
+    bool can_send(TmRingSubnet subnet, tm_engine::tm_time_t now) const;
+    void enqueue(TmRingSubnet subnet, p_tm_pld_t pld, uint32_t traffic_class,
                  tm_engine::tm_time_t now);
     void attach(dst_fifo_lookup_t dst_fifo_lookup);
     uint32_t dst_router() const;
@@ -52,8 +53,8 @@ class TmMeshLink : public tm_engine::TmModule
     uint32_t latency_ = 1;
     uint32_t dst_router_ = 0;
     TmMeshPortDir dst_dir_ = TmMeshPortDir::LOCAL;
-    tm_engine::tm_time_t next_send_time_ = 0;
-    p_transit_queue_t ready_packets_ = nullptr;
+    std::vector<tm_engine::tm_time_t> next_send_time_;
+    std::vector<p_transit_queue_t> ready_packets_;
     dst_fifo_lookup_t dst_fifo_lookup_;
 };
 

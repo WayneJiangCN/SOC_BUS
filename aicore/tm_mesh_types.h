@@ -17,43 +17,75 @@ using plt_cmd_t = PldCmd;
 using tm_mesh_target_cfg_t = tm_bus_target_cfg_t;
 using p_tm_mesh_target_cfg_t = p_tm_bus_target_cfg_t;
 
-enum class TmMeshPortDir : uint32_t
+enum class TmRingPortDir : uint32_t
 {
     LOCAL = 0,
-    NORTH = 1,
-    SOUTH = 2,
-    EAST = 3,
-    WEST = 4,
+    EAST = 1,
+    WEST = 2,
 };
+
+enum class TmRingSubnet : uint32_t
+{
+    REQ = 0,
+    RSP = 1,
+};
+
+inline constexpr uint32_t
+tm_ring_port_count()
+{
+    return 3;
+}
+
+inline constexpr uint32_t
+tm_ring_subnet_count()
+{
+    return 2;
+}
+
+inline constexpr uint32_t
+tm_ring_port_index(TmRingPortDir dir)
+{
+    return static_cast<uint32_t>(dir);
+}
+
+inline constexpr uint32_t
+tm_ring_subnet_index(TmRingSubnet subnet)
+{
+    return static_cast<uint32_t>(subnet);
+}
+
+inline constexpr TmRingPortDir
+tm_ring_opposite_dir(TmRingPortDir dir)
+{
+    switch (dir) {
+      case TmRingPortDir::EAST:
+        return TmRingPortDir::WEST;
+      case TmRingPortDir::WEST:
+        return TmRingPortDir::EAST;
+      case TmRingPortDir::LOCAL:
+      default:
+        return TmRingPortDir::LOCAL;
+    }
+}
+
+using TmMeshPortDir = TmRingPortDir;
 
 inline constexpr uint32_t
 tm_mesh_port_count()
 {
-    return 5;
+    return tm_ring_port_count();
 }
 
 inline constexpr uint32_t
 tm_mesh_port_index(TmMeshPortDir dir)
 {
-    return static_cast<uint32_t>(dir);
+    return tm_ring_port_index(dir);
 }
 
 inline constexpr TmMeshPortDir
 tm_mesh_opposite_dir(TmMeshPortDir dir)
 {
-    switch (dir) {
-      case TmMeshPortDir::NORTH:
-        return TmMeshPortDir::SOUTH;
-      case TmMeshPortDir::SOUTH:
-        return TmMeshPortDir::NORTH;
-      case TmMeshPortDir::EAST:
-        return TmMeshPortDir::WEST;
-      case TmMeshPortDir::WEST:
-        return TmMeshPortDir::EAST;
-      case TmMeshPortDir::LOCAL:
-      default:
-        return TmMeshPortDir::LOCAL;
-    }
+    return tm_ring_opposite_dir(dir);
 }
 
 struct TmMeshRouteCandidate
@@ -80,12 +112,9 @@ struct TmMeshCfg
 
     uint32_t master_wr_grant_fifo_depth = 8;
 
-    uint32_t mesh_rows = 1;
-    uint32_t mesh_cols = 0;
-    uint32_t mesh_req_fifo_depth = 4;
-    uint32_t mesh_rsp_fifo_depth = 4;
-    uint32_t mesh_link_latency = 1;
-    bool mesh_x_first = true;
+    uint32_t ring_req_fifo_depth = 4;
+    uint32_t ring_rsp_fifo_depth = 4;
+    uint32_t ring_link_latency = 1;
 
     bool strict_wr_grant_order = true;
 
