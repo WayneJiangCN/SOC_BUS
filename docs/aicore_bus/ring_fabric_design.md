@@ -2,7 +2,7 @@
 
 ## 顶层定位
 
-`TmMeshFabric` 不是一个“大而全”的 bus 对象，而是整张 mesh-lite 网络的统一调度器。它自己不再保存每个 router 的内部 FIFO，而是把节点内状态下放到 `TmMeshRouter`，把边上的时延状态下放到 `TmMeshLink`。
+`TmRingFabric` 不是一个“大而全”的 bus 对象，而是整张 ring-lite 网络的统一调度器。它自己不再保存每个 router 的内部 FIFO，而是把节点内状态下放到 `TmRingRouter`，把边上的时延状态下放到 `TmRingLink`。
 
 ## Fabric 负责什么
 
@@ -42,9 +42,9 @@
 
 - `recv_master_reqs()`
   从 `bus_inf_` 吸收上游请求到 NIU 本地 pending。
-- `inject_mesh_reqs()`
+- `inject_ring_reqs()`
   把 NIU 本地 pending 请求送到 source router 的 `LOCAL` 输入口。
-- `advance_mesh_routers()`
+- `advance_ring_routers()`
   推进整张网络内部的 router、output port 和 link。
 - `send_target_reqs()`
   把目标 router 已经送到 target 本地队列的包真正发给 target。

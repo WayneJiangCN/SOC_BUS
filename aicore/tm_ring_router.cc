@@ -1,4 +1,4 @@
-#include "tm_mesh_router.h"
+#include "tm_ring_router.h"
 
 using namespace tm_engine;
 
@@ -8,18 +8,18 @@ inline uint32_t cmd_class(pld_cmd_t cmd) { return static_cast<uint32_t>(cmd); }
 
 }  // namespace
 
-TmMeshRouter::TmMeshRouter() {}
+TmRingRouter::TmRingRouter() {}
 
-TmMeshRouter::TmMeshRouter(const std::string& name, p_tm_clk_t clk,
-                           p_tm_mesh_cfg_t cfg)
+TmRingRouter::TmRingRouter(const std::string& name, p_tm_clk_t clk,
+                           p_tm_ring_cfg_t cfg)
     : TmModule(name) {
   config(name, clk, cfg);
 }
 
-TmMeshRouter::~TmMeshRouter() {}
+TmRingRouter::~TmRingRouter() {}
 
-void TmMeshRouter::config(const std::string& name, p_tm_clk_t clk,
-                          p_tm_mesh_cfg_t cfg) {
+void TmRingRouter::config(const std::string& name, p_tm_clk_t clk,
+                          p_tm_ring_cfg_t cfg) {
   name_ = name;
   this->name(name_);
   clk_ = clk;
@@ -62,7 +62,7 @@ void TmMeshRouter::config(const std::string& name, p_tm_clk_t clk,
                         cfg_->ring_rsp_fifo_depth));
   }
 
-  auto route_req_proc = TM_MAKE_CPROC(&TmMeshRouter::route_request);
+  auto route_req_proc = TM_MAKE_CPROC(&TmRingRouter::route_request);
   for (auto& q : req_qs_) {
     tm_sensitive(route_req_proc, q->vld);
   }
@@ -71,7 +71,7 @@ void TmMeshRouter::config(const std::string& name, p_tm_clk_t clk,
     tm_sensitive(route_req_proc, q->vld);
   }
 
-  auto route_rsp_proc = TM_MAKE_CPROC(&TmMeshRouter::route_response);
+  auto route_rsp_proc = TM_MAKE_CPROC(&TmRingRouter::route_response);
   for (auto& lane_qs : rd_rsp_qs_) {
     for (auto& q : lane_qs) {
       tm_sensitive(route_rsp_proc, q->vld);
@@ -87,7 +87,7 @@ void TmMeshRouter::config(const std::string& name, p_tm_clk_t clk,
   reset();
 }
 
-void TmMeshRouter::reset() {
+void TmRingRouter::reset() {
   for (auto& q : req_qs_) {
     q->clear();
   }
@@ -110,7 +110,7 @@ void TmMeshRouter::reset() {
                         rr_init_slot);
 }
 
-bool TmMeshRouter::idle() const {
+bool TmRingRouter::idle() const {
   bool ret = true;
   for (const auto& q : req_qs_) {
     ret = ret && q->empty();
@@ -132,10 +132,10 @@ bool TmMeshRouter::idle() const {
   return ret;
 }
 
-void TmMeshRouter::attach(uint32_t router_id,
-                          std::shared_ptr<TmMeshTopology> topology,
-                          p_tm_mesh_link_t east_link,
-                          p_tm_mesh_link_t west_link,
+void TmRingRouter::attach(uint32_t router_id,
+                          std::shared_ptr<TmRingTopology> topology,
+                          p_tm_ring_link_t east_link,
+                          p_tm_ring_link_t west_link,
                           TmRingLocalEndpoint* local_endpoint) {
   router_id_ = router_id;
   topology_ = topology;
@@ -144,17 +144,17 @@ void TmMeshRouter::attach(uint32_t router_id,
   local_endpoint_ = local_endpoint;
 }
 
-void TmMeshRouter::route_request() { advance_subnet(TmRingSubnet::REQ); }
+void TmRingRouter::route_request() { advance_subnet(TmRingSubnet::REQ); }
 
-void TmMeshRouter::route_response() { advance_subnet(TmRingSubnet::RSP); }
+void TmRingRouter::route_response() { advance_subnet(TmRingSubnet::RSP); }
 
-uint32_t TmMeshRouter::traffic_slot_count() const {
+uint32_t TmRingRouter::traffic_slot_count() const {
   uint32_t extra_rd_rsp_lanes =
       cfg_->rd_rsp_port_num > 0 ? cfg_->rd_rsp_port_num - 1 : 0;
   return cmd_class(PldCmd::UNDEF) + extra_rd_rsp_lanes;
 }
 
-void TmMeshRouter::decode_slot(uint32_t slot_class,
+void TmRingRouter::decode_slot(uint32_t slot_class,
                                uint32_t& traffic_class,
                                uint32_t& rsp_lane) {
   traffic_class = slot_class;
@@ -166,30 +166,30 @@ void TmMeshRouter::decode_slot(uint32_t slot_class,
   }
 }
 
-uint32_t TmMeshRouter::traffic_class(pld_cmd_t cmd) { return cmd_class(cmd); }
+uint32_t TmRingRouter::traffic_class(pld_cmd_t cmd) { return cmd_class(cmd); }
 
-p_tm_com_que_t TmMeshRouter::req_q(TmMeshPortDir in_dir) const {
+p_tm_com_que_t TmRingRouter::req_q(TmRingPortDir in_dir) const {
   return req_qs_[tm_ring_port_index(in_dir)];
 }
 
-p_tm_com_que_t TmMeshRouter::wr_dat_q(TmMeshPortDir in_dir) const {
+p_tm_com_que_t TmRingRouter::wr_dat_q(TmRingPortDir in_dir) const {
   return wr_dat_qs_[tm_ring_port_index(in_dir)];
 }
 
-p_tm_com_que_t TmMeshRouter::rd_rsp_q(TmMeshPortDir in_dir,
+p_tm_com_que_t TmRingRouter::rd_rsp_q(TmRingPortDir in_dir,
                                       uint32_t lane) const {
   return rd_rsp_qs_[tm_ring_port_index(in_dir)][lane];
 }
 
-p_tm_com_que_t TmMeshRouter::wr_req_rsp_q(TmMeshPortDir in_dir) const {
+p_tm_com_que_t TmRingRouter::wr_req_rsp_q(TmRingPortDir in_dir) const {
   return wr_req_rsp_qs_[tm_ring_port_index(in_dir)];
 }
 
-p_tm_com_que_t TmMeshRouter::wr_dat_rsp_q(TmMeshPortDir in_dir) const {
+p_tm_com_que_t TmRingRouter::wr_dat_rsp_q(TmRingPortDir in_dir) const {
   return wr_dat_rsp_qs_[tm_ring_port_index(in_dir)];
 }
 
-p_tm_com_que_t TmMeshRouter::queue_for_class(TmMeshPortDir in_dir,
+p_tm_com_que_t TmRingRouter::queue_for_class(TmRingPortDir in_dir,
                                              uint32_t traffic_class,
                                              uint32_t lane) const {
   uint32_t port = tm_ring_port_index(in_dir);
@@ -208,26 +208,8 @@ p_tm_com_que_t TmMeshRouter::queue_for_class(TmMeshPortDir in_dir,
   }
   return rd_rsp_qs_[port][lane];
 }
-/*
-确定 EAST+REQ 对应的仲裁器
-        ↓
-从上次获胜位置的下一个 slot 开始扫描
-        ↓
-把 slot 转换成：输入端口 + 命令类型 + RD_RSP lane
-        ↓
-过滤掉不属于当前 REQ/RSP subnet 的队列
-        ↓
-检查队列是否有数据
-        ↓
-计算这个包应该走 LOCAL/EAST/WEST
-        ↓
-检查是否正好走当前 out_dir
-        ↓
-检查下游 Router/Link/Target 是否可接收
-        ↓
-找到第一个满足条件的包，返回 winner
-*/
-TmRingSubnet TmMeshRouter::packet_subnet(p_tm_pld_t pld) const {
+
+TmRingSubnet TmRingRouter::packet_subnet(p_tm_pld_t pld) const {
   auto cmd = static_cast<PldCmd>(pld->ring_traffic_class);
   if (cmd == PldCmd::RD || cmd == PldCmd::WR || cmd == PldCmd::WR_DAT) {
     return TmRingSubnet::REQ;
@@ -235,32 +217,31 @@ TmRingSubnet TmMeshRouter::packet_subnet(p_tm_pld_t pld) const {
   return TmRingSubnet::RSP;
 }
 
-p_tm_mesh_link_t TmMeshRouter::output_link(TmMeshPortDir out_dir) const {
-  if (out_dir == TmMeshPortDir::EAST) {
+p_tm_ring_link_t TmRingRouter::output_link(TmRingPortDir out_dir) const {
+  if (out_dir == TmRingPortDir::EAST) {
     return east_link_;
   }
-  if (out_dir == TmMeshPortDir::WEST) {
+  if (out_dir == TmRingPortDir::WEST) {
     return west_link_;
   }
   return nullptr;
 }
-//   每一跳根据当前 router_id 和最终 destination 算 EAST / WEST / LOCAL
-void TmMeshRouter::resolve_route(p_tm_pld_t pld) {
+
+void TmRingRouter::resolve_route(p_tm_pld_t pld) {
   auto cmd = static_cast<PldCmd>(pld->ring_traffic_class);
   bool is_request = cmd == PldCmd::RD || cmd == PldCmd::WR ||
                     cmd == PldCmd::WR_DAT;
   uint32_t destination =
       is_request ? tm_pld_dst_node(pld) : tm_pld_src_node(pld);
   auto out_dir = router_id_ == destination
-                     ? TmMeshPortDir::LOCAL
+                     ? TmRingPortDir::LOCAL
                      : topology_->route_direction(router_id_, destination);
   pld->ring_out_dir = tm_ring_port_index(out_dir);
 }
-//如果下一跳是 EAST/WEST，检查 link 能不能发
-// 如果下一跳是 LOCAL，调用 Fabric::can_accept_local()
-bool TmMeshRouter::route_ready(p_tm_pld_t pld) {
-  auto out_dir = static_cast<TmMeshPortDir>(pld->ring_out_dir);
-  if (out_dir == TmMeshPortDir::LOCAL) {
+
+bool TmRingRouter::route_ready(p_tm_pld_t pld) {
+  auto out_dir = static_cast<TmRingPortDir>(pld->ring_out_dir);
+  if (out_dir == TmRingPortDir::LOCAL) {
     return local_endpoint_->can_accept_local(pld);
   }
 
@@ -268,9 +249,9 @@ bool TmMeshRouter::route_ready(p_tm_pld_t pld) {
   return link != nullptr && link->can_send(packet_subnet(pld), time());
 }
 
-bool TmMeshRouter::route_packet(p_tm_pld_t pld) {
-  auto out_dir = static_cast<TmMeshPortDir>(pld->ring_out_dir);
-  if (out_dir == TmMeshPortDir::LOCAL) {
+bool TmRingRouter::route_packet(p_tm_pld_t pld) {
+  auto out_dir = static_cast<TmRingPortDir>(pld->ring_out_dir);
+  if (out_dir == TmRingPortDir::LOCAL) {
     return local_endpoint_->accept_local(pld);
   }
 
@@ -282,7 +263,7 @@ bool TmMeshRouter::route_packet(p_tm_pld_t pld) {
   return true;
 }
 
-bool TmMeshRouter::select_output_candidate(TmMeshPortDir out_dir,
+bool TmRingRouter::select_output_candidate(TmRingPortDir out_dir,
                                            TmRingSubnet subnet,
                                            p_tm_pld_t& winner) {
   uint32_t class_num = traffic_slot_count();
@@ -303,7 +284,7 @@ bool TmMeshRouter::select_output_candidate(TmMeshPortDir out_dir,
     uint32_t lane;
     decode_slot(slot_class, cls, lane);
 
-    auto in_dir = static_cast<TmMeshPortDir>(port);
+    auto in_dir = static_cast<TmRingPortDir>(port);
     auto cmd = static_cast<PldCmd>(cls);
     bool is_req = cmd == PldCmd::RD || cmd == PldCmd::WR ||
                   cmd == PldCmd::WR_DAT;
@@ -322,7 +303,7 @@ bool TmMeshRouter::select_output_candidate(TmMeshPortDir out_dir,
     pld->ring_rsp_lane = lane;
 
     resolve_route(pld);
-    if (static_cast<TmMeshPortDir>(pld->ring_out_dir) != out_dir ||
+    if (static_cast<TmRingPortDir>(pld->ring_out_dir) != out_dir ||
         !route_ready(pld)) {
       continue;
     }
@@ -334,9 +315,9 @@ bool TmMeshRouter::select_output_candidate(TmMeshPortDir out_dir,
   return false;
 }
 
-void TmMeshRouter::advance_subnet(TmRingSubnet subnet) {
+void TmRingRouter::advance_subnet(TmRingSubnet subnet) {
   for (uint32_t port = 0; port < tm_ring_port_count(); ++port) {
-    auto out_dir = static_cast<TmMeshPortDir>(port);
+    auto out_dir = static_cast<TmRingPortDir>(port);
     p_tm_pld_t winner = nullptr;
     if (!select_output_candidate(out_dir, subnet, winner)) {
       continue;
@@ -353,7 +334,7 @@ void TmMeshRouter::advance_subnet(TmRingSubnet subnet) {
                       ? cmd_class(PldCmd::RD_RSP)
                       : cmd_class(PldCmd::UNDEF) + winner->ring_rsp_lane - 1)
                : winner->ring_traffic_class);
-      queue_for_class(static_cast<TmMeshPortDir>(winner->ring_in_dir),
+      queue_for_class(static_cast<TmRingPortDir>(winner->ring_in_dir),
                       winner->ring_traffic_class, winner->ring_rsp_lane)
           ->pop_front();
     }

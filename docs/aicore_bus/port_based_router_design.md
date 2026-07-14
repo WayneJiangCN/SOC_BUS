@@ -63,7 +63,7 @@ Router(3).EAST -> Router(4).WEST
 
 ## 链路发射语义
 
-当前 `TmMeshLink` 的语义是：
+当前 `TmRingLink` 的语义是：
 
 - 每条有向 link 每拍最多发 1 个单位
 - 发射后包进入 in-flight 队列
@@ -76,7 +76,7 @@ Router(3).EAST -> Router(4).WEST
 
 ## 调试与统计
 
-`TmMeshRouter` 为每个 output port 保存 `OutputArbDebug`。当前统计重点是：
+`TmRingRouter` 为每个 output port 保存 `OutputArbDebug`。当前统计重点是：
 
 - 仲裁轮数
 - 发生竞争的轮数

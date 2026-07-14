@@ -50,25 +50,25 @@
 
 ```text
 Core / BIU
-  -> Tm_mesh_inf
-  -> TmMeshRouter
-  -> TmMeshLink
-  -> TmMeshRouter
-  -> TmMeshTargetPort
+  -> TmRingInf
+  -> TmRingRouter
+  -> TmRingLink
+  -> TmRingRouter
+  -> TmRingTargetPort
   -> TmMem / target
 ```
 
 职责划分：
 
-- `Tm_mesh_inf`
+- `TmRingInf`
   message-buffer endpoint / NIU，负责本地 pending、grant、completion、上下游接口。
-- `TmMeshRouter`
+- `TmRingRouter`
   粗粒度 router，负责本地 message queues 和每个输出口的 RR 选择。
-- `TmMeshLink`
+- `TmRingLink`
   轻量链路，负责共享输出节流和 hop latency。
-- `TmMeshTargetPort`
+- `TmRingTargetPort`
   target 前 ingress port，负责 target-local queues 和下游接口。
-- `TmMeshFabric`
+- `TmRingFabric`
   共享调度容器，负责路由、共享事务上下文和主 tick。
 
 ## 5. 协议语义
@@ -137,18 +137,18 @@ Core / BIU
 
 ### 8.1 该保留的
 
-- `Tm_mesh_inf`
-- `TmMeshTopology`
+- `TmRingInf`
+- `TmRingTopology`
 - `TmBusFlowCtrl`
 - `txn_ctx_`
-- `TmMeshTargetPort`
+- `TmRingTargetPort`
 
 这些都直接支撑你的目标。
 
 ### 8.2 可以保留，但不要继续细化的
 
-- `TmMeshRouter`
-- `TmMeshLink`
+- `TmRingRouter`
+- `TmRingLink`
 
 保留它们是合理的，因为：
 

@@ -28,7 +28,7 @@
 
 当前模型保留了：
 
-- mesh 节点位置
+- ring 节点位置
 - `LOCAL/NORTH/SOUTH/EAST/WEST` 端口
 - `src_port -> dst_port` 的有向 link
 - link latency 和逐拍发射
@@ -41,7 +41,7 @@
 
 ### 3. target 端瓶颈
 
-`TmBusFlowCtrl` 和 `TmMeshTargetPort` 仍然是这套模型里最关键的性能来源之一。它们能表达：
+`TmBusFlowCtrl` 和 `TmRingTargetPort` 仍然是这套模型里最关键的性能来源之一。它们能表达：
 
 - outstanding/OSD 限制
 - token/busy 限制
@@ -75,7 +75,7 @@ WR_REQ -> WR_REQ_RSP(grant) -> WR_DAT -> WR_DAT_RSP
 下面这些结论通常可以比较放心地用：
 
 - 不同 interleave 方案的相对优劣
-- 不同 mesh 大小、节点映射的相对趋势
+- 不同 ring 大小、节点映射的相对趋势
 - 读多、写多、混合流量下的大方向瓶颈
 - target 数、读返回 lane 数变化带来的大体收益
 - 哪类流量占用了主要带宽
@@ -189,7 +189,7 @@ link 现在不是“占一次锁整条边很多拍”，而是：
 
 ### 4. NIU 仍是 message-buffer 风格
 
-`Tm_mesh_inf` 仍然是：
+`TmRingInf` 仍然是：
 
 - 上游请求先入本地 pending
 - 后续再注入网络
@@ -220,7 +220,7 @@ link 现在不是“占一次锁整条边很多拍”，而是：
 
 - 比较 interleave 策略
 - 比较不同 target 映射
-- 比较不同 mesh 规模
+- 比较不同 ring 规模
 - 比较读写流量比例变化
 - 看 router 方向竞争和 target 热点
 

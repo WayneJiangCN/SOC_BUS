@@ -1,5 +1,5 @@
-#ifndef _TM_MESH_TARGET_PORT_H_
-#define _TM_MESH_TARGET_PORT_H_
+#ifndef _TM_RING_TARGET_PORT_H_
+#define _TM_RING_TARGET_PORT_H_
 
 #include <stdint.h>
 
@@ -12,7 +12,7 @@
 #include "tm_engine.h"
 #include "tm_inf.h"
 #include "tm_mem.h"
-#include "tm_mesh_types.h"
+#include "tm_ring_types.h"
 #include "tm_que.h"
 
 class TmBusFlowCtrl;
@@ -24,17 +24,17 @@ class TmBusFlowCtrl;
  * owns the target/TmMem handshake: send requests to memory, receive memory
  * responses, and inject responses back into the local router FIFOs.
  */
-class TmMeshTargetPort : public tm_engine::TmModule
+class TmRingTargetPort : public tm_engine::TmModule
 {
   public:
-    TmMeshTargetPort();
-    TmMeshTargetPort(const std::string& name, tm_engine::p_tm_clk_t clk,
-                     p_tm_mesh_target_cfg_t cfg, uint32_t rd_rsp_port_num,
+    TmRingTargetPort();
+    TmRingTargetPort(const std::string& name, tm_engine::p_tm_clk_t clk,
+                     p_tm_ring_target_cfg_t cfg, uint32_t rd_rsp_port_num,
                      uint32_t inf_depth);
-    ~TmMeshTargetPort();
+    ~TmRingTargetPort();
 
     void config(const std::string& name, tm_engine::p_tm_clk_t clk,
-                p_tm_mesh_target_cfg_t cfg, uint32_t rd_rsp_port_num,
+                p_tm_ring_target_cfg_t cfg, uint32_t rd_rsp_port_num,
                 uint32_t inf_depth);
     void reset();
     bool idle() const;
@@ -79,7 +79,7 @@ class TmMeshTargetPort : public tm_engine::TmModule
 
     std::string name_;
     tm_engine::p_tm_clk_t clk_ = nullptr;
-    p_tm_mesh_target_cfg_t cfg_ = nullptr;
+    p_tm_ring_target_cfg_t cfg_ = nullptr;
     uint32_t target_id_ = 0;
     uint32_t rd_rsp_port_num_ = 0;
     std::shared_ptr<TmBusFlowCtrl> flow_ctrl_ = nullptr;
@@ -99,16 +99,16 @@ class TmMeshTargetPort : public tm_engine::TmModule
     tm_engine::tm_time_t next_wr_dat_rsp_issue_time_ = 0;
 };
 
-using tm_mesh_target_port_t = TmMeshTargetPort;
-using p_tm_mesh_target_port_t = std::shared_ptr<tm_mesh_target_port_t>;
+using tm_ring_target_port_t = TmRingTargetPort;
+using p_tm_ring_target_port_t = std::shared_ptr<tm_ring_target_port_t>;
 
-inline p_tm_mesh_target_port_t
-tm_make_mesh_target_port(const std::string& name, tm_engine::p_tm_clk_t clk,
-                         p_tm_mesh_target_cfg_t cfg, uint32_t rd_rsp_port_num,
+inline p_tm_ring_target_port_t
+tm_make_ring_target_port(const std::string& name, tm_engine::p_tm_clk_t clk,
+                         p_tm_ring_target_cfg_t cfg, uint32_t rd_rsp_port_num,
                          uint32_t inf_depth)
 {
-    return std::make_shared<TmMeshTargetPort>(name, clk, cfg, rd_rsp_port_num,
+    return std::make_shared<TmRingTargetPort>(name, clk, cfg, rd_rsp_port_num,
                                               inf_depth);
 }
 
-#endif  // _TM_MESH_TARGET_PORT_H_
+#endif  // _TM_RING_TARGET_PORT_H_

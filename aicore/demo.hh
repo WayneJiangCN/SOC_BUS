@@ -20,7 +20,7 @@ using namespace tm_engine;
 /*
  * demo.hh:
  * 一个轻量示例模块，用来驱动 PemBiu 产生读写事务，
- * 方便联调 bus/ring/mesh/mem 这一整条路径。
+ * 方便联调 bus/ring/mem 这一整条路径。
  */
 
 const static uint BAND_WIDTH = 128;

@@ -10,7 +10,7 @@ using namespace tm_engine;
 /*
  * tm_bus_flow_ctrl.cc
  *
- * 这是当前 ring/mesh 共用的 target 级事务流控实现。
+ * 这是当前 ring/bus 共用的 target 级事务流控实现。
  * 它不模拟 router/link credit，只模拟：
  * - target slot credit
  * - target bandwidth token

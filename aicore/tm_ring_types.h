@@ -1,5 +1,5 @@
-#ifndef _TM_MESH_TYPES_H_
-#define _TM_MESH_TYPES_H_
+#ifndef _TM_RING_TYPES_H_
+#define _TM_RING_TYPES_H_
 
 #include <stdint.h>
 
@@ -14,8 +14,8 @@ using PldCmd = pld_cmd_t;
 using plt_cmt_t = PldCmd;
 using plt_cmd_t = PldCmd;
 
-using tm_mesh_target_cfg_t = tm_bus_target_cfg_t;
-using p_tm_mesh_target_cfg_t = p_tm_bus_target_cfg_t;
+using tm_ring_target_cfg_t = tm_bus_target_cfg_t;
+using p_tm_ring_target_cfg_t = p_tm_bus_target_cfg_t;
 
 enum class TmRingPortDir : uint32_t
 {
@@ -68,27 +68,7 @@ tm_ring_opposite_dir(TmRingPortDir dir)
     }
 }
 
-using TmMeshPortDir = TmRingPortDir;
-
-inline constexpr uint32_t
-tm_mesh_port_count()
-{
-    return tm_ring_port_count();
-}
-
-inline constexpr uint32_t
-tm_mesh_port_index(TmMeshPortDir dir)
-{
-    return tm_ring_port_index(dir);
-}
-
-inline constexpr TmMeshPortDir
-tm_mesh_opposite_dir(TmMeshPortDir dir)
-{
-    return tm_ring_opposite_dir(dir);
-}
-
-struct TmMeshCfg
+struct TmRingCfg
 {
     std::string name = "";
     uint32_t num_masters = 1;
@@ -115,11 +95,11 @@ struct TmMeshCfg
 
     bool strict_wr_grant_order = true;
 
-    std::vector<p_tm_mesh_target_cfg_t> targets;
+    std::vector<p_tm_ring_target_cfg_t> targets;
 };
 
-using tm_mesh_cfg_t = TmMeshCfg;
-using p_tm_mesh_cfg_t = std::shared_ptr<tm_mesh_cfg_t>;
+using tm_ring_cfg_t = TmRingCfg;
+using p_tm_ring_cfg_t = std::shared_ptr<tm_ring_cfg_t>;
 
 class TmRingLocalEndpoint
 {
@@ -129,11 +109,11 @@ class TmRingLocalEndpoint
     virtual bool accept_local(p_tm_pld_t pld) = 0;
 };
 
-struct TmMeshRdRspState
+struct TmRingRdRspState
 {
     uint32_t rsp_expected = 1;
     uint32_t rsp_seen = 0;
     bool slot_released = false;
 };
 
-#endif  // _TM_MESH_TYPES_H_
+#endif  // _TM_RING_TYPES_H_

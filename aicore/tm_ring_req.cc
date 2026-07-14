@@ -1,8 +1,8 @@
-#include "tm_mesh.h"
-#include "tm_mesh_inf.h"
-#include "tm_mesh_link.h"
-#include "tm_mesh_router.h"
-#include "tm_mesh_target_port.h"
+#include "tm_ring.h"
+#include "tm_ring_inf.h"
+#include "tm_ring_link.h"
+#include "tm_ring_router.h"
+#include "tm_ring_target_port.h"
 #include "tm_pld.h"
 
 #include <iostream>
@@ -11,7 +11,7 @@ using namespace std;
 using namespace tm_engine;
 
 bool
-TmMeshFabric::can_accept_local(p_tm_pld_t pld)
+TmRingFabric::can_accept_local(p_tm_pld_t pld)
 {
     auto traffic_class = pld->ring_traffic_class;
     auto cmd = static_cast<PldCmd>(traffic_class);
@@ -27,7 +27,7 @@ TmMeshFabric::can_accept_local(p_tm_pld_t pld)
 }
 
 bool
-TmMeshFabric::accept_local(p_tm_pld_t pld)
+TmRingFabric::accept_local(p_tm_pld_t pld)
 {
     const uint32_t target_id = tm_pld_target_id(pld);
     auto traffic_class = pld->ring_traffic_class;
@@ -104,7 +104,7 @@ TmMeshFabric::accept_local(p_tm_pld_t pld)
 }
 
 bool
-TmMeshFabric::reserve_global_osd(aic_req_type_t req_type)
+TmRingFabric::reserve_global_osd(aic_req_type_t req_type)
 {
     if (req_type != aic_req_type_t::RD_REQ &&
         req_type != aic_req_type_t::WR_REQ) {
@@ -118,7 +118,7 @@ TmMeshFabric::reserve_global_osd(aic_req_type_t req_type)
 }
 
 void
-TmMeshFabric::release_global_osd(aic_req_type_t req_type)
+TmRingFabric::release_global_osd(aic_req_type_t req_type)
 {
     if (req_type != aic_req_type_t::RD_REQ &&
         req_type != aic_req_type_t::WR_REQ) {

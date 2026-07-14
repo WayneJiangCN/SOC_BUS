@@ -1,28 +1,28 @@
-#include "tm_mesh_link.h"
+#include "tm_ring_link.h"
 
 #include <algorithm>
 #include <cassert>
 #include <iostream>
 #include <utility>
 
-#include "tm_mesh_router.h"
+#include "tm_ring_router.h"
 
 using namespace tm_engine;
 
-TmMeshLink::TmMeshLink() {}
+TmRingLink::TmRingLink() {}
 
-TmMeshLink::TmMeshLink(const std::string& name,
-                       p_tm_clk_t clk, p_tm_mesh_cfg_t cfg, uint32_t latency,
-                       uint32_t dst_router, TmMeshPortDir dst_dir)
+TmRingLink::TmRingLink(const std::string& name,
+                       p_tm_clk_t clk, p_tm_ring_cfg_t cfg, uint32_t latency,
+                       uint32_t dst_router, TmRingPortDir dst_dir)
     : TmModule(name) {
   config(name, clk, cfg, latency, dst_router, dst_dir);
 }
 
-TmMeshLink::~TmMeshLink() {}
+TmRingLink::~TmRingLink() {}
 
-void TmMeshLink::config(const std::string& name, p_tm_clk_t clk,
-                        p_tm_mesh_cfg_t cfg, uint32_t latency,
-                        uint32_t dst_router, TmMeshPortDir dst_dir) {
+void TmRingLink::config(const std::string& name, p_tm_clk_t clk,
+                        p_tm_ring_cfg_t cfg, uint32_t latency,
+                        uint32_t dst_router, TmRingPortDir dst_dir) {
   name_ = name;
   this->name(name_);
   clk_ = clk;
@@ -42,7 +42,7 @@ void TmMeshLink::config(const std::string& name, p_tm_clk_t clk,
   max_inflight_[tm_ring_subnet_index(TmRingSubnet::RSP)] =
       std::max<uint32_t>(1, cfg_->ring_rsp_link_max_inflight);
 
-  auto drain_proc = TM_MAKE_CPROC(&TmMeshLink::drain_ready_packets);
+  auto drain_proc = TM_MAKE_CPROC(&TmRingLink::drain_ready_packets);
   ready_packets_.push_back(tm_make_que<Transit>(
       clk_, name_ + "_req_ready_packets",
       std::max<uint32_t>(1, cfg_->ring_req_fifo_depth), latency_));
@@ -56,7 +56,7 @@ void TmMeshLink::config(const std::string& name, p_tm_clk_t clk,
   reset();
 }
 
-void TmMeshLink::reset() {
+void TmRingLink::reset() {
   std::fill(next_send_time_.begin(), next_send_time_.end(), 0);
   std::fill(inflight_count_.begin(), inflight_count_.end(), 0);
   std::fill(stats_.begin(), stats_.end(), LinkSubnetStats());
@@ -65,7 +65,7 @@ void TmMeshLink::reset() {
   }
 }
 
-bool TmMeshLink::idle() const {
+bool TmRingLink::idle() const {
   bool ret = true;
   for (auto& q : ready_packets_) {
     ret = q->empty();
@@ -76,13 +76,13 @@ bool TmMeshLink::idle() const {
   return ret;
 }
 
-bool TmMeshLink::can_send(TmRingSubnet subnet, tm_time_t now) const {
+bool TmRingLink::can_send(TmRingSubnet subnet, tm_time_t now) const {
   uint32_t idx = tm_ring_subnet_index(subnet);
   return now >= next_send_time_[idx] && !ready_packets_[idx]->full() &&
          inflight_count_[idx] < max_inflight_[idx];
 }
 
-void TmMeshLink::enqueue(TmRingSubnet subnet, p_tm_pld_t pld,
+void TmRingLink::enqueue(TmRingSubnet subnet, p_tm_pld_t pld,
                          uint32_t traffic_class, tm_time_t now) {
   uint32_t idx = tm_ring_subnet_index(subnet);
   uint32_t bytes = packet_bytes(traffic_class, pld);
@@ -106,7 +106,7 @@ void TmMeshLink::enqueue(TmRingSubnet subnet, p_tm_pld_t pld,
   next_send_time_[idx] = now + serialization_cycles;
 }
 
-uint32_t TmMeshLink::packet_bytes(uint32_t traffic_class,
+uint32_t TmRingLink::packet_bytes(uint32_t traffic_class,
                                   const p_tm_pld_t& pld) const {
   if (pld == nullptr) {
     return 0;
@@ -125,16 +125,16 @@ uint32_t TmMeshLink::packet_bytes(uint32_t traffic_class,
   return pld->size;
 }
 
-const TmMeshLink::LinkSubnetStats& TmMeshLink::subnet_stats(
+const TmRingLink::LinkSubnetStats& TmRingLink::subnet_stats(
     TmRingSubnet subnet) const {
   return stats_[tm_ring_subnet_index(subnet)];
 }
 
-void TmMeshLink::attach(dst_fifo_lookup_t dst_fifo_lookup) {
+void TmRingLink::attach(dst_fifo_lookup_t dst_fifo_lookup) {
   dst_fifo_lookup_ = std::move(dst_fifo_lookup);
 }
 
-void TmMeshLink::drain_ready_packets() {
+void TmRingLink::drain_ready_packets() {
   for (uint32_t idx = 0; idx < ready_packets_.size(); ++idx) {
     auto& q = ready_packets_[idx];
     while (q->valid() && !q->empty()) {
@@ -156,7 +156,7 @@ void TmMeshLink::drain_ready_packets() {
         stats_[idx].invalid_dst_stall++;
         std::cerr << name_ << ": missing destination FIFO for traffic_class "
                   << transit.traffic_class << std::endl;
-        assert(false && "TmMeshLink missing destination FIFO");
+        assert(false && "TmRingLink missing destination FIFO");
         break;
       }
       if (dst_fifo->full()) {
@@ -173,6 +173,6 @@ void TmMeshLink::drain_ready_packets() {
   }
 }
 
-uint32_t TmMeshLink::dst_router() const { return dst_router_; }
+uint32_t TmRingLink::dst_router() const { return dst_router_; }
 
-TmMeshPortDir TmMeshLink::dst_dir() const { return dst_dir_; }
+TmRingPortDir TmRingLink::dst_dir() const { return dst_dir_; }

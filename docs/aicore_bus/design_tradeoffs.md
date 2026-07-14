@@ -121,7 +121,7 @@
 
 含义：
 
-- 上游请求先入本地 pending，再注入 mesh
+- 上游请求先入本地 pending，再注入 ring
 
 优点：
 

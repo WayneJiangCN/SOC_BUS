@@ -1,10 +1,10 @@
-# Mesh 建模方案
+# Ring 建模方案
 
 ## 1. 建模定位
 
-当前 `tm_mesh_*` 的目标不是做一个完整硬件 NoC，而是做一版：
+当前 `tm_ring_*` 的目标不是做一个完整硬件 NoC，而是做一版：
 
-**transaction/message-level mesh NoC-lite**
+**transaction/message-level ring NoC-lite**
 
 它更接近：
 
@@ -35,15 +35,15 @@
 
 ```text
 Core / BIU
-  -> Tm_mesh_inf
-  -> TmMeshRouter
-  -> TmMeshLink
-  -> TmMeshRouter
-  -> TmMeshTargetPort
+  -> TmRingInf
+  -> TmRingRouter
+  -> TmRingLink
+  -> TmRingRouter
+  -> TmRingTargetPort
   -> TmMem / target
 ```
 
-### 3.1 `Tm_mesh_inf`
+### 3.1 `TmRingInf`
 
 角色：
 
@@ -58,7 +58,7 @@ Core / BIU
 - completion 跟踪
 - response 回送
 
-### 3.2 `TmMeshRouter`
+### 3.2 `TmRingRouter`
 
 角色：
 
@@ -76,7 +76,7 @@ Core / BIU
 - credit
 - crossbar 微结构
 
-### 3.3 `TmMeshLink`
+### 3.3 `TmRingLink`
 
 角色：
 
@@ -89,7 +89,7 @@ Core / BIU
 
 当前更像 `SimpleNetwork::Throttle` 的粗粒度链路，而不是 `Garnet CreditLink`。
 
-### 3.4 `TmMeshTargetPort`
+### 3.4 `TmRingTargetPort`
 
 角色：
 
@@ -101,7 +101,7 @@ Core / BIU
 - 下游 target/TmMem 接口
 - target response 回注入
 
-### 3.5 `TmMeshFabric`
+### 3.5 `TmRingFabric`
 
 角色：
 
@@ -121,7 +121,7 @@ Core / BIU
 
 ```text
 upstream / API
-  -> Tm_mesh_inf pending
+  -> TmRingInf pending
   -> request/data subnet
   -> Router
   -> Link
@@ -144,7 +144,7 @@ target / TmMem
   -> Router
   -> Link
   -> Router
-  -> Tm_mesh_inf
+  -> TmRingInf
   -> upstream
 ```
 
@@ -188,11 +188,11 @@ target / TmMem
 
 对应关系：
 
-- `Tm_mesh_inf`
+- `TmRingInf`
   类似 message-buffer endpoint
-- `TmMeshRouter`
+- `TmRingRouter`
   类似粗粒度 switch
-- `TmMeshLink`
+- `TmRingLink`
   类似输出 throttle / link timing
 
 这比 Garnet 更贴近你现在的目标层次。

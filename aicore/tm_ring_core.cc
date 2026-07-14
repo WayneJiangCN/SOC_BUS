@@ -1,35 +1,35 @@
 #include <algorithm>
 
 #include "pem_biu.h"
-#include "tm_mesh.h"
-#include "tm_mesh_inf.h"
-#include "tm_mesh_link.h"
-#include "tm_mesh_router.h"
-#include "tm_mesh_target_port.h"
+#include "tm_ring.h"
+#include "tm_ring_inf.h"
+#include "tm_ring_link.h"
+#include "tm_ring_router.h"
+#include "tm_ring_target_port.h"
 #include "tm_pld.h"
 
 using namespace std;
 using namespace tm_engine;
 
-TmMeshFabric::TmMeshFabric()
+TmRingFabric::TmRingFabric()
 {
 }
 
-TmMeshFabric::TmMeshFabric(p_tm_clk_t clk, p_tm_mesh_cfg_t cfg)
+TmRingFabric::TmRingFabric(p_tm_clk_t clk, p_tm_ring_cfg_t cfg)
     : clk_(clk), cfg_(cfg)
 {
     this->name(cfg_->name);
     config();
 }
 
-TmMeshFabric::~TmMeshFabric()
+TmRingFabric::~TmRingFabric()
 {
 }
 
 void
-TmMeshFabric::config()
+TmRingFabric::config()
 {
-    topology_ = std::make_shared<TmMeshTopology>();
+    topology_ = std::make_shared<TmRingTopology>();
     flow_ctrl_ = std::make_shared<TmBusFlowCtrl>();
 
     topology_->config(cfg_);
@@ -65,42 +65,42 @@ TmMeshFabric::config()
     }
 
     for (uint32_t i = 0; i < cfg_->num_masters; ++i) {
-        master_nius_.push_back(tm_make_mesh_inf(
+        master_nius_.push_back(tm_make_ring_inf(
             this->name() + "_master_niu" + std::to_string(i), clk_, i, cfg_));
     }
 
     for (uint32_t i = 0; i < cfg_->num_targets; ++i) {
         auto target_cfg = cfg_->targets[i];
-        target_ports_.push_back(tm_make_mesh_target_port(
+        target_ports_.push_back(tm_make_ring_target_port(
             this->name() + "_target_port_" + std::to_string(i), clk_,
             target_cfg, cfg_->rd_rsp_port_num, cfg_->target_inf_depth));
     }
 
     for (uint32_t router = 0; router < ring_router_count_; ++router) {
-        routers_.push_back(tm_make_mesh_router(
+        routers_.push_back(tm_make_ring_router(
             this->name() + "_router_" + std::to_string(router), clk_, cfg_));
     }
 
     for (uint32_t router = 0; router < ring_router_count_; ++router) {
-        if (topology_->has_neighbor(router, TmMeshPortDir::EAST)) {
-            uint32_t east = topology_->neighbor(router, TmMeshPortDir::EAST);
-            links_[make_link_key(router, TmMeshPortDir::EAST, east,
-                                 TmMeshPortDir::WEST)] =
-                tm_make_mesh_link(this->name() + "_link_" +
+        if (topology_->has_neighbor(router, TmRingPortDir::EAST)) {
+            uint32_t east = topology_->neighbor(router, TmRingPortDir::EAST);
+            links_[make_link_key(router, TmRingPortDir::EAST, east,
+                                 TmRingPortDir::WEST)] =
+                tm_make_ring_link(this->name() + "_link_" +
                                       std::to_string(router) + "_E_" +
                                       std::to_string(east) + "_W",
                                   clk_, cfg_, ring_link_latency_, east,
-                                  TmMeshPortDir::WEST);
+                                  TmRingPortDir::WEST);
         }
-        if (topology_->has_neighbor(router, TmMeshPortDir::WEST)) {
-            uint32_t west = topology_->neighbor(router, TmMeshPortDir::WEST);
-            links_[make_link_key(router, TmMeshPortDir::WEST, west,
-                                 TmMeshPortDir::EAST)] =
-                tm_make_mesh_link(this->name() + "_link_" +
+        if (topology_->has_neighbor(router, TmRingPortDir::WEST)) {
+            uint32_t west = topology_->neighbor(router, TmRingPortDir::WEST);
+            links_[make_link_key(router, TmRingPortDir::WEST, west,
+                                 TmRingPortDir::EAST)] =
+                tm_make_ring_link(this->name() + "_link_" +
                                       std::to_string(router) + "_W_" +
                                       std::to_string(west) + "_E",
                                   clk_, cfg_, ring_link_latency_, west,
-                                  TmMeshPortDir::EAST);
+                                  TmRingPortDir::EAST);
         }
     }
 
@@ -112,9 +112,9 @@ TmMeshFabric::config()
         }
         uint32_t source_router = topology_->master_node(i);
         niu->attach(i, topology_, flow_ctrl_,
-                    get_router_req_fifo(source_router, TmMeshPortDir::LOCAL,
+                    get_router_req_fifo(source_router, TmRingPortDir::LOCAL,
                                         aic_req_type_t::RD_REQ),
-                    get_router_req_fifo(source_router, TmMeshPortDir::LOCAL,
+                    get_router_req_fifo(source_router, TmRingPortDir::LOCAL,
                                         aic_req_type_t::WR_DAT),
                     [this](aic_req_type_t req_type) {
                         return reserve_global_osd(req_type);
@@ -128,19 +128,19 @@ TmMeshFabric::config()
         if (router == nullptr) {
             continue;
         }
-        auto east_link = topology_->has_neighbor(router_id, TmMeshPortDir::EAST)
+        auto east_link = topology_->has_neighbor(router_id, TmRingPortDir::EAST)
                              ? get_ring_link(
-                                   router_id, TmMeshPortDir::EAST,
+                                   router_id, TmRingPortDir::EAST,
                                    topology_->neighbor(router_id,
-                                                       TmMeshPortDir::EAST),
-                                   TmMeshPortDir::WEST)
+                                                       TmRingPortDir::EAST),
+                                   TmRingPortDir::WEST)
                              : nullptr;
-        auto west_link = topology_->has_neighbor(router_id, TmMeshPortDir::WEST)
+        auto west_link = topology_->has_neighbor(router_id, TmRingPortDir::WEST)
                              ? get_ring_link(
-                                   router_id, TmMeshPortDir::WEST,
+                                   router_id, TmRingPortDir::WEST,
                                    topology_->neighbor(router_id,
-                                                       TmMeshPortDir::WEST),
-                                   TmMeshPortDir::EAST)
+                                                       TmRingPortDir::WEST),
+                                   TmRingPortDir::EAST)
                              : nullptr;
         router->attach(router_id, topology_, east_link, west_link, this);
     }
@@ -151,7 +151,7 @@ TmMeshFabric::config()
         auto link = it.second;
         if (link != nullptr) {
             link->attach(
-                [this](uint32_t dst_router, TmMeshPortDir dst_dir,
+                [this](uint32_t dst_router, TmRingPortDir dst_dir,
                        uint32_t traffic_class, p_tm_pld_t pld) {
                     auto cmd = static_cast<PldCmd>(traffic_class);
                     if (cmd == PldCmd::RD || cmd == PldCmd::WR) {
@@ -188,16 +188,16 @@ TmMeshFabric::config()
         std::vector<p_tm_com_que_t> rd_rsp_qs;
         for (uint32_t lane = 0; lane < cfg_->rd_rsp_port_num; ++lane) {
             rd_rsp_qs.push_back(get_router_rd_rsp_fifo(
-                router_id, TmMeshPortDir::LOCAL, lane));
+                router_id, TmRingPortDir::LOCAL, lane));
         }
         target_port->attach(
             target_id, flow_ctrl_, rd_rsp_qs,
-            get_router_wr_req_rsp_fifo(router_id, TmMeshPortDir::LOCAL),
-            get_router_wr_dat_rsp_fifo(router_id, TmMeshPortDir::LOCAL));
+            get_router_wr_req_rsp_fifo(router_id, TmRingPortDir::LOCAL),
+            get_router_wr_dat_rsp_fifo(router_id, TmRingPortDir::LOCAL));
     }
 
     if (token_clk_ != nullptr) {
-        tm_sensitive(TM_MAKE_CPROC(&TmMeshFabric::update_target_tokens),
+        tm_sensitive(TM_MAKE_CPROC(&TmRingFabric::update_target_tokens),
                      token_clk_->pos_edge);
     }
 
@@ -205,12 +205,12 @@ TmMeshFabric::config()
 }
 
 void
-TmMeshFabric::build()
+TmRingFabric::build()
 {
 }
 
 void
-TmMeshFabric::reset()
+TmRingFabric::reset()
 {
     rd_rsp_states_.clear();
 
@@ -241,7 +241,7 @@ TmMeshFabric::reset()
 }
 
 bool
-TmMeshFabric::idle()
+TmRingFabric::idle()
 {
     bool ret = rd_rsp_states_.empty();
 
@@ -262,7 +262,7 @@ TmMeshFabric::idle()
 }
 
 void
-TmMeshFabric::update_target_tokens()
+TmRingFabric::update_target_tokens()
 {
     flow_ctrl_->update_tokens(time());
     for (auto& target_port : target_ports_) {
@@ -273,7 +273,7 @@ TmMeshFabric::update_target_tokens()
 }
 
 void
-TmMeshFabric::attach_master(uint32_t idx, p_tm_mesh_inf_t inf)
+TmRingFabric::attach_master(uint32_t idx, p_tm_ring_inf_t inf)
 {
     if (idx >= master_nius_.size() || inf == nullptr) {
         return;
@@ -283,9 +283,9 @@ TmMeshFabric::attach_master(uint32_t idx, p_tm_mesh_inf_t inf)
     master_nius_[idx] = inf;
     uint32_t source_router = topology_->master_node(idx);
     inf->attach(idx, topology_, flow_ctrl_,
-                get_router_req_fifo(source_router, TmMeshPortDir::LOCAL,
+                get_router_req_fifo(source_router, TmRingPortDir::LOCAL,
                                     aic_req_type_t::RD_REQ),
-                get_router_req_fifo(source_router, TmMeshPortDir::LOCAL,
+                get_router_req_fifo(source_router, TmRingPortDir::LOCAL,
                                     aic_req_type_t::WR_DAT),
                 [this](aic_req_type_t req_type) {
                     return reserve_global_osd(req_type);
@@ -293,7 +293,7 @@ TmMeshFabric::attach_master(uint32_t idx, p_tm_mesh_inf_t inf)
 }
 
 void
-TmMeshFabric::attach_master(p_tm_mesh_inf_t inf)
+TmRingFabric::attach_master(p_tm_ring_inf_t inf)
 {
     if (inf == nullptr) {
         return;
@@ -302,7 +302,7 @@ TmMeshFabric::attach_master(p_tm_mesh_inf_t inf)
 }
 
 void
-TmMeshFabric::attach_master(uint32_t idx, p_tm_mesh_biu_t biu)
+TmRingFabric::attach_master(uint32_t idx, p_tm_ring_biu_t biu)
 {
     if (biu == nullptr) {
         return;
@@ -311,7 +311,7 @@ TmMeshFabric::attach_master(uint32_t idx, p_tm_mesh_biu_t biu)
 }
 
 void
-TmMeshFabric::attach_master(uint32_t idx, p_tm_com_inf_t inf)
+TmRingFabric::attach_master(uint32_t idx, p_tm_com_inf_t inf)
 {
     if (idx >= master_nius_.size() || master_nius_[idx] == nullptr ||
         inf == nullptr) {
@@ -321,7 +321,7 @@ TmMeshFabric::attach_master(uint32_t idx, p_tm_com_inf_t inf)
 }
 
 void
-TmMeshFabric::attach_target(uint32_t idx, p_tm_com_inf_t inf)
+TmRingFabric::attach_target(uint32_t idx, p_tm_com_inf_t inf)
 {
     if (idx >= target_ports_.size() || target_ports_[idx] == nullptr ||
         inf == nullptr) {
@@ -331,7 +331,7 @@ TmMeshFabric::attach_target(uint32_t idx, p_tm_com_inf_t inf)
 }
 
 void
-TmMeshFabric::attach_target(uint32_t idx, p_tm_mem_t mem)
+TmRingFabric::attach_target(uint32_t idx, p_tm_mem_t mem)
 {
     if (idx >= target_ports_.size() || target_ports_[idx] == nullptr ||
         mem == nullptr) {
@@ -341,7 +341,7 @@ TmMeshFabric::attach_target(uint32_t idx, p_tm_mem_t mem)
 }
 
 void
-TmMeshFabric::bind_master_id(uint32_t port_id, uint32_t mst_id)
+TmRingFabric::bind_master_id(uint32_t port_id, uint32_t mst_id)
 {
     topology_->bind_master_id(port_id, mst_id);
     if (port_id < master_nius_.size() && master_nius_[port_id] != nullptr) {
@@ -350,7 +350,7 @@ TmMeshFabric::bind_master_id(uint32_t port_id, uint32_t mst_id)
 }
 
 uint32_t
-TmMeshFabric::send_rd_req(uint32_t master_port, uint64_t address, uint32_t size)
+TmRingFabric::send_rd_req(uint32_t master_port, uint64_t address, uint32_t size)
 {
     if (master_port >= master_nius_.size() ||
         master_nius_[master_port] == nullptr) {
@@ -360,7 +360,7 @@ TmMeshFabric::send_rd_req(uint32_t master_port, uint64_t address, uint32_t size)
 }
 
 uint32_t
-TmMeshFabric::send_wr_req(uint32_t master_port, uint64_t address, uint32_t size)
+TmRingFabric::send_wr_req(uint32_t master_port, uint64_t address, uint32_t size)
 {
     if (master_port >= master_nius_.size() ||
         master_nius_[master_port] == nullptr) {
@@ -370,7 +370,7 @@ TmMeshFabric::send_wr_req(uint32_t master_port, uint64_t address, uint32_t size)
 }
 
 bool
-TmMeshFabric::completed(uint32_t master_port, uint32_t req_id)
+TmRingFabric::completed(uint32_t master_port, uint32_t req_id)
 {
     if (master_port >= master_nius_.size() ||
         master_nius_[master_port] == nullptr) {
@@ -380,7 +380,7 @@ TmMeshFabric::completed(uint32_t master_port, uint32_t req_id)
 }
 
 bool
-TmMeshFabric::canSendRdReq(uint32_t master_port)
+TmRingFabric::canSendRdReq(uint32_t master_port)
 {
     if (master_port >= master_nius_.size() ||
         master_nius_[master_port] == nullptr) {
@@ -390,7 +390,7 @@ TmMeshFabric::canSendRdReq(uint32_t master_port)
 }
 
 bool
-TmMeshFabric::canSendWrReq(uint32_t master_port)
+TmRingFabric::canSendWrReq(uint32_t master_port)
 {
     if (master_port >= master_nius_.size() ||
         master_nius_[master_port] == nullptr) {
@@ -400,7 +400,7 @@ TmMeshFabric::canSendWrReq(uint32_t master_port)
 }
 
 p_tm_com_que_t
-TmMeshFabric::get_router_req_fifo(uint32_t router_id, TmMeshPortDir in_dir,
+TmRingFabric::get_router_req_fifo(uint32_t router_id, TmRingPortDir in_dir,
                                   aic_req_type_t req_type) const
 {
     auto router = routers_[router_id];
@@ -411,29 +411,29 @@ TmMeshFabric::get_router_req_fifo(uint32_t router_id, TmMeshPortDir in_dir,
 }
 
 p_tm_com_que_t
-TmMeshFabric::get_router_rd_rsp_fifo(uint32_t router_id, TmMeshPortDir in_dir,
+TmRingFabric::get_router_rd_rsp_fifo(uint32_t router_id, TmRingPortDir in_dir,
                                      uint32_t lane) const
 {
     return routers_[router_id]->rd_rsp_q(in_dir, lane);
 }
 
 p_tm_com_que_t
-TmMeshFabric::get_router_wr_req_rsp_fifo(uint32_t router_id,
-                                         TmMeshPortDir in_dir) const
+TmRingFabric::get_router_wr_req_rsp_fifo(uint32_t router_id,
+                                         TmRingPortDir in_dir) const
 {
     return routers_[router_id]->wr_req_rsp_q(in_dir);
 }
 
 p_tm_com_que_t
-TmMeshFabric::get_router_wr_dat_rsp_fifo(uint32_t router_id,
-                                         TmMeshPortDir in_dir) const
+TmRingFabric::get_router_wr_dat_rsp_fifo(uint32_t router_id,
+                                         TmRingPortDir in_dir) const
 {
     return routers_[router_id]->wr_dat_rsp_q(in_dir);
 }
 
-p_tm_mesh_link_t
-TmMeshFabric::get_ring_link(uint32_t src_router_id, TmMeshPortDir src_dir,
-                            uint32_t dst_router_id, TmMeshPortDir dst_dir) const
+p_tm_ring_link_t
+TmRingFabric::get_ring_link(uint32_t src_router_id, TmRingPortDir src_dir,
+                            uint32_t dst_router_id, TmRingPortDir dst_dir) const
 {
     auto it = links_.find(
         make_link_key(src_router_id, src_dir, dst_router_id, dst_dir));
@@ -441,8 +441,8 @@ TmMeshFabric::get_ring_link(uint32_t src_router_id, TmMeshPortDir src_dir,
 }
 
 uint64_t
-TmMeshFabric::make_link_key(uint32_t src_router_id, TmMeshPortDir src_dir,
-                            uint32_t dst_router_id, TmMeshPortDir dst_dir) const
+TmRingFabric::make_link_key(uint32_t src_router_id, TmRingPortDir src_dir,
+                            uint32_t dst_router_id, TmRingPortDir dst_dir) const
 {
     return (static_cast<uint64_t>(src_router_id) << 48) |
            (static_cast<uint64_t>(tm_ring_port_index(src_dir)) << 40) |
@@ -451,13 +451,13 @@ TmMeshFabric::make_link_key(uint32_t src_router_id, TmMeshPortDir src_dir,
 }
 
 uint64_t
-TmMeshFabric::make_txn_key(uint32_t mst_id, uint32_t gid) const
+TmRingFabric::make_txn_key(uint32_t mst_id, uint32_t gid) const
 {
     return (static_cast<uint64_t>(mst_id) << 32) | gid;
 }
 
 uint64_t
-TmMeshFabric::make_txn_key(p_tm_pld_t pld) const
+TmRingFabric::make_txn_key(p_tm_pld_t pld) const
 {
     return make_txn_key(pld->mst_id, pld->gid);
 }

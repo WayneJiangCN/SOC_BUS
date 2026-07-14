@@ -2,7 +2,7 @@
 
 ## 仲裁发生在哪里
 
-当前 mesh 主线的仲裁不在 fabric 外层，也不在旧的 bus arbiter 中，而是在 `TmMeshRouter::pick_output_winner()`。
+当前 ring 主线的仲裁不在 fabric 外层，也不在旧的 bus arbiter 中，而是在 `TmRingRouter::pick_output_winner()`。
 
 fabric 的工作是：
 

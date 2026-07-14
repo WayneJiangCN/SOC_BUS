@@ -1,7 +1,7 @@
-#include "tm_mesh_topology.h"
+#include "tm_ring_topology.h"
 
 void
-TmMeshTopology::config(p_tm_mesh_cfg_t cfg)
+TmRingTopology::config(p_tm_ring_cfg_t cfg)
 {
     cfg_ = cfg;
     interleave_rules_.clear();
@@ -40,7 +40,7 @@ TmMeshTopology::config(p_tm_mesh_cfg_t cfg)
 }
 
 void
-TmMeshTopology::reset(uint32_t num_masters)
+TmRingTopology::reset(uint32_t num_masters)
 {
     master_id_to_port_.clear();
     port_to_master_id_.assign(num_masters, 0);
@@ -51,7 +51,7 @@ TmMeshTopology::reset(uint32_t num_masters)
 }
 
 void
-TmMeshTopology::bind_master_id(uint32_t port_id, uint32_t mst_id)
+TmRingTopology::bind_master_id(uint32_t port_id, uint32_t mst_id)
 {
     uint32_t old_mst_id = port_to_master_id_[port_id];
     if (old_mst_id != mst_id) {
@@ -63,20 +63,20 @@ TmMeshTopology::bind_master_id(uint32_t port_id, uint32_t mst_id)
 }
 
 uint32_t
-TmMeshTopology::port_master_id(uint32_t port_id) const
+TmRingTopology::port_master_id(uint32_t port_id) const
 {
     return port_to_master_id_[port_id];
 }
 
 uint32_t
-TmMeshTopology::find_master_port(uint32_t mst_id) const
+TmRingTopology::find_master_port(uint32_t mst_id) const
 {
     auto it = master_id_to_port_.find(mst_id);
     return it == master_id_to_port_.end() ? UINT32_MAX : it->second;
 }
 
 uint32_t
-TmMeshTopology::decode_target(uint64_t addr) const
+TmRingTopology::decode_target(uint64_t addr) const
 {
     uint32_t default_target = 0;
     bool has_default = false;
@@ -102,63 +102,63 @@ TmMeshTopology::decode_target(uint64_t addr) const
 }
 
 uint32_t
-TmMeshTopology::router_count() const
+TmRingTopology::router_count() const
 {
     return router_count_;
 }
 
 uint32_t
-TmMeshTopology::master_node(uint32_t master_port) const
+TmRingTopology::master_node(uint32_t master_port) const
 {
     return master_nodes_[master_port];
 }
 
 uint32_t
-TmMeshTopology::target_node(uint32_t target_id) const
+TmRingTopology::target_node(uint32_t target_id) const
 {
     return target_nodes_[target_id];
 }
 
 bool
-TmMeshTopology::has_neighbor(uint32_t node_id, TmMeshPortDir dir) const
+TmRingTopology::has_neighbor(uint32_t node_id, TmRingPortDir dir) const
 {
     (void)node_id;
-    if (dir == TmMeshPortDir::LOCAL) {
+    if (dir == TmRingPortDir::LOCAL) {
         return true;
     }
     return router_count_ > 1 &&
-           (dir == TmMeshPortDir::EAST || dir == TmMeshPortDir::WEST);
+           (dir == TmRingPortDir::EAST || dir == TmRingPortDir::WEST);
 }
 
 uint32_t
-TmMeshTopology::neighbor(uint32_t node_id, TmMeshPortDir dir) const
+TmRingTopology::neighbor(uint32_t node_id, TmRingPortDir dir) const
 {
-    if (router_count_ <= 1 || dir == TmMeshPortDir::LOCAL) {
+    if (router_count_ <= 1 || dir == TmRingPortDir::LOCAL) {
         return node_id;
     }
-    if (dir == TmMeshPortDir::EAST) {
+    if (dir == TmRingPortDir::EAST) {
         return (node_id + 1) % router_count_;
     }
     return (node_id + router_count_ - 1) % router_count_;
 }
 
-TmMeshPortDir
-TmMeshTopology::route_direction(uint32_t cur_node, uint32_t dst_node) const
+TmRingPortDir
+TmRingTopology::route_direction(uint32_t cur_node, uint32_t dst_node) const
 {
     if (cur_node == dst_node || router_count_ <= 1) {
-        return TmMeshPortDir::LOCAL;
+        return TmRingPortDir::LOCAL;
     }
 
     uint32_t clockwise = (dst_node + router_count_ - cur_node) % router_count_;
     uint32_t counter_clockwise =
         (cur_node + router_count_ - dst_node) % router_count_;
 
-    return clockwise <= counter_clockwise ? TmMeshPortDir::EAST
-                                          : TmMeshPortDir::WEST;
+    return clockwise <= counter_clockwise ? TmRingPortDir::EAST
+                                          : TmRingPortDir::WEST;
 }
 
 uint32_t
-TmMeshTopology::compute_next_node(uint32_t cur_node, uint32_t dst_node) const
+TmRingTopology::compute_next_node(uint32_t cur_node, uint32_t dst_node) const
 {
     return neighbor(cur_node, route_direction(cur_node, dst_node));
 }

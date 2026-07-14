@@ -1,4 +1,4 @@
-#include "tm_mesh_inf.h"
+#include "tm_ring_inf.h"
 
 #include <algorithm>
 #include <utility>
@@ -10,24 +10,24 @@
 using namespace std;
 using namespace tm_engine;
 
-Tm_mesh_inf::Tm_mesh_inf(const std::string& name, p_tm_clk_t clk,
-                         uint32_t inf_id, p_tm_mesh_cfg_t cfg)
+TmRingInf::TmRingInf(const std::string& name, p_tm_clk_t clk,
+                         uint32_t inf_id, p_tm_ring_cfg_t cfg)
     : TmModule(name), clk_(clk), cfg_(cfg), inf_id_(inf_id) {
   config();
 }
 
-Tm_mesh_inf::~Tm_mesh_inf() {}
+TmRingInf::~TmRingInf() {}
 
-void Tm_mesh_inf::config() {
+void TmRingInf::config() {
   uint32_t chan_num =
       static_cast<uint32_t>(aic_req_type_t::RD_REQ) + cfg_->rd_rsp_port_num;
 
   bus_inf_ =
       tm_make_com_inf(clk_, this->name() + "_bus_inf", cfg_->master_inf_depth);
   bus_inf_->set_chan_num(chan_num);
-  tm_sensitive(TM_MAKE_CPROC(&Tm_mesh_inf::recv_rd_cmd), bus_inf_->vld);
-  tm_sensitive(TM_MAKE_CPROC(&Tm_mesh_inf::recv_wr_cmd), bus_inf_->vld);
-  tm_sensitive(TM_MAKE_CPROC(&Tm_mesh_inf::recv_wr_dat), bus_inf_->vld);
+  tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_rd_cmd), bus_inf_->vld);
+  tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_wr_cmd), bus_inf_->vld);
+  tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_wr_dat), bus_inf_->vld);
 
   wr_grant_fifo_ = tm_make_que<p_tm_pld_t>(
       clk_, this->name() + "_wr_grant_fifo", cfg_->master_wr_grant_fifo_depth);
@@ -35,7 +35,7 @@ void Tm_mesh_inf::config() {
   reset();
 }
 
-void Tm_mesh_inf::reset() {
+void TmRingInf::reset() {
   bus_inf_->reset();
   wr_grant_fifo_->clear();
   bus_req_list_.clear();
@@ -45,32 +45,32 @@ void Tm_mesh_inf::reset() {
   wr_outstanding_ = 0;
 }
 
-bool Tm_mesh_inf::idle() {
+bool TmRingInf::idle() {
   return bus_inf_->idle() && wr_grant_fifo_->empty() && bus_req_list_.empty() &&
          api_req_map_.empty() && rd_outstanding_ == 0 && wr_outstanding_ == 0;
 }
 
-void Tm_mesh_inf::attach(p_tm_com_inf_t inf) { bus_inf_->connect(inf); }
+void TmRingInf::attach(p_tm_com_inf_t inf) { bus_inf_->connect(inf); }
 
-void Tm_mesh_inf::attach(uint32_t master_port, p_tm_mesh_topology_t topology,
-                         p_tm_mesh_flow_ctrl_t flow_ctrl,
+void TmRingInf::attach(uint32_t master_port, p_tm_ring_topology_t topology,
+                         p_tm_ring_flow_ctrl_t flow_ctrl,
                          p_tm_com_que_t router_req_q,
                          p_tm_com_que_t router_wr_dat_q,
-                         tm_mesh_osd_reserve_t global_osd_reserve) {
+                         tm_ring_osd_reserve_t global_osd_reserve) {
   master_port_ = master_port;
   topology_ = topology;
   flow_ctrl_ = flow_ctrl;
   router_req_q_ = router_req_q;
   router_wr_dat_q_ = router_wr_dat_q;
   global_osd_reserve_ = std::move(global_osd_reserve);
-  tm_sensitive(TM_MAKE_CPROC(&Tm_mesh_inf::recv_rd_cmd), router_req_q_->rdy);
-  tm_sensitive(TM_MAKE_CPROC(&Tm_mesh_inf::recv_wr_cmd), router_req_q_->rdy);
-  tm_sensitive(TM_MAKE_CPROC(&Tm_mesh_inf::recv_wr_dat), router_wr_dat_q_->rdy);
+  tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_rd_cmd), router_req_q_->rdy);
+  tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_wr_cmd), router_req_q_->rdy);
+  tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_wr_dat), router_wr_dat_q_->rdy);
 }
 
-void Tm_mesh_inf::set_master_id(uint32_t mst_id) { inf_id_ = mst_id; }
+void TmRingInf::set_master_id(uint32_t mst_id) { inf_id_ = mst_id; }
 
-uint32_t Tm_mesh_inf::send_rd_req(uint64_t address, uint32_t size) {
+uint32_t TmRingInf::send_rd_req(uint64_t address, uint32_t size) {
   auto req = tm_make_pld(PldCmd::RD, address, size);
   req->buf_u32 = make_shared<vector<uint32_t>>(size, 0);
   req->data = pld_data_t((req->buf_u32)->data());
@@ -85,7 +85,7 @@ uint32_t Tm_mesh_inf::send_rd_req(uint64_t address, uint32_t size) {
   return cur_req_id;
 }
 
-uint32_t Tm_mesh_inf::send_wr_req(uint64_t address, uint32_t size) {
+uint32_t TmRingInf::send_wr_req(uint64_t address, uint32_t size) {
   auto req = tm_make_pld(PldCmd::WR, address, size);
   req->buf_u32 = make_shared<vector<uint32_t>>(size, 0);
   req->data = pld_data_t((req->buf_u32)->data());
@@ -100,7 +100,7 @@ uint32_t Tm_mesh_inf::send_wr_req(uint64_t address, uint32_t size) {
   return cur_req_id;
 }
 
-bool Tm_mesh_inf::is_request_completed(uint32_t req_id) {
+bool TmRingInf::is_request_completed(uint32_t req_id) {
   auto iter = find_if(bus_req_list_.begin(), bus_req_list_.end(),
                       [req_id](const pair<uint32_t, p_tm_pld_t>& req) {
                         return req.first == req_id;
@@ -108,15 +108,15 @@ bool Tm_mesh_inf::is_request_completed(uint32_t req_id) {
   return iter == bus_req_list_.end();
 }
 
-bool Tm_mesh_inf::can_send_rd_req() {
+bool TmRingInf::can_send_rd_req() {
   return rd_outstanding_ < cfg_->master_rd_osd && !router_req_q_->full();
 }
 
-bool Tm_mesh_inf::can_send_wr_req() {
+bool TmRingInf::can_send_wr_req() {
   return wr_outstanding_ < cfg_->master_wr_osd && !router_req_q_->full();
 }
 
-void Tm_mesh_inf::recv_rd_cmd() {
+void TmRingInf::recv_rd_cmd() {
   auto req_type = aic_req_type_t::RD_REQ;
   uint32_t chan = static_cast<uint32_t>(req_type);
 
@@ -130,7 +130,7 @@ void Tm_mesh_inf::recv_rd_cmd() {
   }
 }
 
-void Tm_mesh_inf::recv_wr_cmd() {
+void TmRingInf::recv_wr_cmd() {
   auto req_type = aic_req_type_t::WR_REQ;
   uint32_t chan = static_cast<uint32_t>(req_type);
 
@@ -144,7 +144,7 @@ void Tm_mesh_inf::recv_wr_cmd() {
   }
 }
 
-void Tm_mesh_inf::recv_wr_dat() {
+void TmRingInf::recv_wr_dat() {
   auto req_type = aic_req_type_t::WR_DAT;
   uint32_t chan = static_cast<uint32_t>(req_type);
 
@@ -158,7 +158,7 @@ void Tm_mesh_inf::recv_wr_dat() {
   }
 }
 
-bool Tm_mesh_inf::issue_cmd_to_ring(aic_req_type_t req_type, p_tm_pld_t pld) {
+bool TmRingInf::issue_cmd_to_ring(aic_req_type_t req_type, p_tm_pld_t pld) {
   pld->mst_id = topology_->port_master_id(master_port_);
   if (req_type == aic_req_type_t::RD_REQ) {
     pld->cmd = PldCmd::RD;
@@ -194,21 +194,21 @@ bool Tm_mesh_inf::issue_cmd_to_ring(aic_req_type_t req_type, p_tm_pld_t pld) {
   return true;
 }
 
-void Tm_mesh_inf::pop_pending_grant() { wr_grant_fifo_->pop_front(); }
+void TmRingInf::pop_pending_grant() { wr_grant_fifo_->pop_front(); }
 
-void Tm_mesh_inf::release_read_osd() {
+void TmRingInf::release_read_osd() {
   if (rd_outstanding_ > 0) {
     rd_outstanding_--;
   }
 }
 
-void Tm_mesh_inf::release_write_osd() {
+void TmRingInf::release_write_osd() {
   if (wr_outstanding_ > 0) {
     wr_outstanding_--;
   }
 }
 
-bool Tm_mesh_inf::accept_read_response(p_tm_pld_t rsp, uint32_t lane) {
+bool TmRingInf::accept_read_response(p_tm_pld_t rsp, uint32_t lane) {
   if (retire_api_read_response(rsp)) {
     return true;
   }
@@ -218,7 +218,7 @@ bool Tm_mesh_inf::accept_read_response(p_tm_pld_t rsp, uint32_t lane) {
   return true;
 }
 
-bool Tm_mesh_inf::accept_write_request_response(p_tm_pld_t rsp) {
+bool TmRingInf::accept_write_request_response(p_tm_pld_t rsp) {
   bool is_api_write = is_api_write_request(rsp);
   if (wr_grant_fifo_->full()) {
     return false;
@@ -251,7 +251,7 @@ bool Tm_mesh_inf::accept_write_request_response(p_tm_pld_t rsp) {
   return true;
 }
 
-bool Tm_mesh_inf::accept_write_data_response(p_tm_pld_t rsp) {
+bool TmRingInf::accept_write_data_response(p_tm_pld_t rsp) {
   if (retire_api_write_response(rsp)) {
     return true;
   }
@@ -262,7 +262,7 @@ bool Tm_mesh_inf::accept_write_data_response(p_tm_pld_t rsp) {
   return true;
 }
 
-uint32_t Tm_mesh_inf::response_channel(aic_req_type_t req_type,
+uint32_t TmRingInf::response_channel(aic_req_type_t req_type,
                                        uint32_t lane) const {
   if (req_type == aic_req_type_t::RD_REQ) {
     return static_cast<uint32_t>(aic_req_type_t::RD_REQ) + lane;
@@ -270,7 +270,7 @@ uint32_t Tm_mesh_inf::response_channel(aic_req_type_t req_type,
   return static_cast<uint32_t>(req_type);
 }
 
-void Tm_mesh_inf::prepare_request_metadata(p_tm_pld_t pld,
+void TmRingInf::prepare_request_metadata(p_tm_pld_t pld,
                                            aic_req_type_t req_type) {
   auto target_id = topology_->decode_target(pld->addr);
   tm_pld_set_ring_route(pld, static_cast<uint32_t>(req_type), target_id,
@@ -278,7 +278,7 @@ void Tm_mesh_inf::prepare_request_metadata(p_tm_pld_t pld,
                         topology_->target_node(target_id), time());
 }
 
-bool Tm_mesh_inf::can_reserve_master_osd(aic_req_type_t req_type) const {
+bool TmRingInf::can_reserve_master_osd(aic_req_type_t req_type) const {
   if (req_type == aic_req_type_t::RD_REQ) {
     return rd_outstanding_ < cfg_->master_rd_osd;
   }
@@ -288,7 +288,7 @@ bool Tm_mesh_inf::can_reserve_master_osd(aic_req_type_t req_type) const {
   return true;
 }
 
-bool Tm_mesh_inf::reserve_transaction_osd(aic_req_type_t req_type) {
+bool TmRingInf::reserve_transaction_osd(aic_req_type_t req_type) {
   if (!can_reserve_master_osd(req_type)) {
     return false;
   }
@@ -303,7 +303,7 @@ bool Tm_mesh_inf::reserve_transaction_osd(aic_req_type_t req_type) {
   return true;
 }
 
-void Tm_mesh_inf::track_api_request(uint32_t req_id, p_tm_pld_t req,
+void TmRingInf::track_api_request(uint32_t req_id, p_tm_pld_t req,
                                     aic_req_type_t req_type) {
   bus_req_list_.push_back(std::make_pair(req_id, req));
 
@@ -312,7 +312,7 @@ void Tm_mesh_inf::track_api_request(uint32_t req_id, p_tm_pld_t req,
   api_req_map_[req_id] = state;
 }
 
-void Tm_mesh_inf::retire_tracked_request(p_tm_pld_t rsp) {
+void TmRingInf::retire_tracked_request(p_tm_pld_t rsp) {
   auto iter = find_if(bus_req_list_.begin(), bus_req_list_.end(),
                       [rsp](const pair<uint32_t, p_tm_pld_t>& req) {
                         return req.first == rsp->gid || req.second == rsp;
@@ -322,7 +322,7 @@ void Tm_mesh_inf::retire_tracked_request(p_tm_pld_t rsp) {
   }
 }
 
-bool Tm_mesh_inf::retire_api_read_response(p_tm_pld_t rsp) {
+bool TmRingInf::retire_api_read_response(p_tm_pld_t rsp) {
   auto it = api_req_map_.find(rsp->gid);
   if (it == api_req_map_.end() ||
       it->second.req_type != aic_req_type_t::RD_REQ) {
@@ -340,7 +340,7 @@ bool Tm_mesh_inf::retire_api_read_response(p_tm_pld_t rsp) {
   return true;
 }
 
-bool Tm_mesh_inf::retire_api_write_response(p_tm_pld_t rsp) {
+bool TmRingInf::retire_api_write_response(p_tm_pld_t rsp) {
   auto it = api_req_map_.find(rsp->gid);
   if (it == api_req_map_.end() ||
       it->second.req_type != aic_req_type_t::WR_REQ) {
@@ -352,7 +352,7 @@ bool Tm_mesh_inf::retire_api_write_response(p_tm_pld_t rsp) {
   return true;
 }
 
-bool Tm_mesh_inf::is_api_write_request(p_tm_pld_t rsp) const {
+bool TmRingInf::is_api_write_request(p_tm_pld_t rsp) const {
   auto it = api_req_map_.find(rsp->gid);
   return it != api_req_map_.end() &&
          it->second.req_type == aic_req_type_t::WR_REQ;

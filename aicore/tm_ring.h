@@ -1,5 +1,5 @@
-#ifndef _TM_MESH_H_
-#define _TM_MESH_H_
+#ifndef _TM_RING_H_
+#define _TM_RING_H_
 
 #include <stdint.h>
 
@@ -13,28 +13,28 @@
 #include "tm_clock.h"
 #include "tm_engine.h"
 #include "tm_inf.h"
-#include "tm_mesh_topology.h"
-#include "tm_mesh_types.h"
+#include "tm_ring_topology.h"
+#include "tm_ring_types.h"
 #include "tm_que.h"
 
 class PemBiu;
-using p_tm_mesh_biu_t = std::shared_ptr<PemBiu>;
+using p_tm_ring_biu_t = std::shared_ptr<PemBiu>;
 
-class Tm_mesh_inf;
-using tm_mesh_inf_t = Tm_mesh_inf;
-using p_tm_mesh_inf_t = std::shared_ptr<tm_mesh_inf_t>;
+class TmRingInf;
+using tm_ring_inf_t = TmRingInf;
+using p_tm_ring_inf_t = std::shared_ptr<tm_ring_inf_t>;
 
-class TmMeshRouter;
-using tm_mesh_router_t = TmMeshRouter;
-using p_tm_mesh_router_t = std::shared_ptr<tm_mesh_router_t>;
+class TmRingRouter;
+using tm_ring_router_t = TmRingRouter;
+using p_tm_ring_router_t = std::shared_ptr<tm_ring_router_t>;
 
-class TmMeshLink;
-using tm_mesh_link_t = TmMeshLink;
-using p_tm_mesh_link_t = std::shared_ptr<tm_mesh_link_t>;
+class TmRingLink;
+using tm_ring_link_t = TmRingLink;
+using p_tm_ring_link_t = std::shared_ptr<tm_ring_link_t>;
 
-class TmMeshTargetPort;
-using tm_mesh_target_port_t = TmMeshTargetPort;
-using p_tm_mesh_target_port_t = std::shared_ptr<tm_mesh_target_port_t>;
+class TmRingTargetPort;
+using tm_ring_target_port_t = TmRingTargetPort;
+using p_tm_ring_target_port_t = std::shared_ptr<tm_ring_target_port_t>;
 
 /*
  * Top-level ring interconnect model.
@@ -43,12 +43,12 @@ using p_tm_mesh_target_port_t = std::shared_ptr<tm_mesh_target_port_t>;
  * target ports. The fine-grained queue events stay inside each submodule; the
  * fabric callbacks only advance the affected link/router path.
  */
-class TmMeshFabric : public tm_engine::TmModule, public TmRingLocalEndpoint
+class TmRingFabric : public tm_engine::TmModule, public TmRingLocalEndpoint
 {
   public:
-    TmMeshFabric();
-    TmMeshFabric(tm_engine::p_tm_clk_t clk, p_tm_mesh_cfg_t cfg);
-    virtual ~TmMeshFabric();
+    TmRingFabric();
+    TmRingFabric(tm_engine::p_tm_clk_t clk, p_tm_ring_cfg_t cfg);
+    virtual ~TmRingFabric();
 
     virtual void config();
     virtual void build();
@@ -57,9 +57,9 @@ class TmMeshFabric : public tm_engine::TmModule, public TmRingLocalEndpoint
 
     virtual void update_target_tokens();
 
-    virtual void attach_master(uint32_t idx, p_tm_mesh_inf_t inf);
-    virtual void attach_master(p_tm_mesh_inf_t inf);
-    virtual void attach_master(uint32_t idx, p_tm_mesh_biu_t biu);
+    virtual void attach_master(uint32_t idx, p_tm_ring_inf_t inf);
+    virtual void attach_master(p_tm_ring_inf_t inf);
+    virtual void attach_master(uint32_t idx, p_tm_ring_biu_t biu);
     virtual void attach_master(uint32_t idx, p_tm_com_inf_t inf);
     virtual void attach_target(uint32_t idx, p_tm_com_inf_t inf);
     virtual void attach_target(uint32_t idx, p_tm_mem_t mem);
@@ -75,14 +75,14 @@ class TmMeshFabric : public tm_engine::TmModule, public TmRingLocalEndpoint
 
   protected:
     tm_engine::p_tm_clk_t clk_ = nullptr;
-    p_tm_mesh_cfg_t cfg_ = nullptr;
+    p_tm_ring_cfg_t cfg_ = nullptr;
 
-    std::vector<p_tm_mesh_inf_t> master_nius_;
-    std::vector<p_tm_mesh_router_t> routers_;
-    std::unordered_map<uint64_t, p_tm_mesh_link_t> links_;
-    std::vector<p_tm_mesh_target_port_t> target_ports_;
+    std::vector<p_tm_ring_inf_t> master_nius_;
+    std::vector<p_tm_ring_router_t> routers_;
+    std::unordered_map<uint64_t, p_tm_ring_link_t> links_;
+    std::vector<p_tm_ring_target_port_t> target_ports_;
 
-    std::unordered_map<uint64_t, TmMeshRdRspState> rd_rsp_states_;
+    std::unordered_map<uint64_t, TmRingRdRspState> rd_rsp_states_;
 
     tm_engine::p_tm_clk_t token_clk_ = nullptr;
 
@@ -90,7 +90,7 @@ class TmMeshFabric : public tm_engine::TmModule, public TmRingLocalEndpoint
     uint32_t ring_link_latency_ = 1;
     uint32_t global_outstanding_ = 0;
 
-    std::shared_ptr<TmMeshTopology> topology_;
+    std::shared_ptr<TmRingTopology> topology_;
     std::shared_ptr<TmBusFlowCtrl> flow_ctrl_;
 
   protected:
@@ -100,40 +100,40 @@ class TmMeshFabric : public tm_engine::TmModule, public TmRingLocalEndpoint
     void release_global_osd(aic_req_type_t req_type);
 
     p_tm_com_que_t get_router_req_fifo(uint32_t router_id,
-                                       TmMeshPortDir in_dir,
+                                       TmRingPortDir in_dir,
                                        aic_req_type_t req_type) const;
     p_tm_com_que_t get_router_rd_rsp_fifo(uint32_t router_id,
-                                          TmMeshPortDir in_dir,
+                                          TmRingPortDir in_dir,
                                           uint32_t lane) const;
     p_tm_com_que_t get_router_wr_req_rsp_fifo(uint32_t router_id,
-                                              TmMeshPortDir in_dir) const;
+                                              TmRingPortDir in_dir) const;
     p_tm_com_que_t get_router_wr_dat_rsp_fifo(uint32_t router_id,
-                                              TmMeshPortDir in_dir) const;
+                                              TmRingPortDir in_dir) const;
 
-    p_tm_mesh_link_t get_ring_link(uint32_t src_router_id,
-                                   TmMeshPortDir src_dir,
+    p_tm_ring_link_t get_ring_link(uint32_t src_router_id,
+                                   TmRingPortDir src_dir,
                                    uint32_t dst_router_id,
-                                   TmMeshPortDir dst_dir) const;
-    uint64_t make_link_key(uint32_t src_router_id, TmMeshPortDir src_dir,
-                           uint32_t dst_router_id, TmMeshPortDir dst_dir) const;
+                                   TmRingPortDir dst_dir) const;
+    uint64_t make_link_key(uint32_t src_router_id, TmRingPortDir src_dir,
+                           uint32_t dst_router_id, TmRingPortDir dst_dir) const;
 
     uint64_t make_txn_key(uint32_t mst_id, uint32_t gid) const;
     uint64_t make_txn_key(p_tm_pld_t pld) const;
 };
 
-using tm_mesh_fabric_t = TmMeshFabric;
-using p_tm_mesh_fabric_t = std::shared_ptr<TmMeshFabric>;
+using tm_ring_fabric_t = TmRingFabric;
+using p_tm_ring_fabric_t = std::shared_ptr<TmRingFabric>;
 
-inline p_tm_mesh_cfg_t
-tm_make_mesh_cfg()
+inline p_tm_ring_cfg_t
+tm_make_ring_cfg()
 {
-    return std::make_shared<tm_mesh_cfg_t>();
+    return std::make_shared<tm_ring_cfg_t>();
 }
 
-inline p_tm_mesh_fabric_t
-tm_make_mesh(tm_engine::p_tm_clk_t clk, p_tm_mesh_cfg_t cfg)
+inline p_tm_ring_fabric_t
+tm_make_ring(tm_engine::p_tm_clk_t clk, p_tm_ring_cfg_t cfg)
 {
-    return std::make_shared<TmMeshFabric>(clk, cfg);
+    return std::make_shared<TmRingFabric>(clk, cfg);
 }
 
-#endif  // _TM_MESH_H_
+#endif  // _TM_RING_H_

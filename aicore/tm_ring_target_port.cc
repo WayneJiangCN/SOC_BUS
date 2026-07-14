@@ -1,17 +1,17 @@
-#include "tm_mesh_target_port.h"
+#include "tm_ring_target_port.h"
 
 #include "tm_bus_flow_ctrl.h"
-#include "tm_mesh_router.h"
+#include "tm_ring_router.h"
 #include "tm_pld.h"
 
 using namespace tm_engine;
 
-TmMeshTargetPort::TmMeshTargetPort()
+TmRingTargetPort::TmRingTargetPort()
 {
 }
 
-TmMeshTargetPort::TmMeshTargetPort(const std::string& name, p_tm_clk_t clk,
-                                   p_tm_mesh_target_cfg_t cfg,
+TmRingTargetPort::TmRingTargetPort(const std::string& name, p_tm_clk_t clk,
+                                   p_tm_ring_target_cfg_t cfg,
                                    uint32_t rd_rsp_port_num,
                                    uint32_t inf_depth)
     : TmModule(name)
@@ -19,13 +19,13 @@ TmMeshTargetPort::TmMeshTargetPort(const std::string& name, p_tm_clk_t clk,
     config(name, clk, cfg, rd_rsp_port_num, inf_depth);
 }
 
-TmMeshTargetPort::~TmMeshTargetPort()
+TmRingTargetPort::~TmRingTargetPort()
 {
 }
 
 void
-TmMeshTargetPort::config(const std::string& name, p_tm_clk_t clk,
-                         p_tm_mesh_target_cfg_t cfg, uint32_t rd_rsp_port_num,
+TmRingTargetPort::config(const std::string& name, p_tm_clk_t clk,
+                         p_tm_ring_target_cfg_t cfg, uint32_t rd_rsp_port_num,
                          uint32_t inf_depth)
 {
     name_ = name;
@@ -38,9 +38,9 @@ TmMeshTargetPort::config(const std::string& name, p_tm_clk_t clk,
         static_cast<uint32_t>(aic_req_type_t::RD_REQ) + rd_rsp_port_num_;
     inf_ = tm_make_com_inf(clk_, name_ + "_inf", inf_depth);
     inf_->set_chan_num(chan_num);
-    tm_sensitive(TM_MAKE_CPROC(&TmMeshTargetPort::recv_rd_cmd_rsp), inf_->vld);
-    tm_sensitive(TM_MAKE_CPROC(&TmMeshTargetPort::recv_wr_cmd_rsp), inf_->vld);
-    tm_sensitive(TM_MAKE_CPROC(&TmMeshTargetPort::recv_wr_dat_rsp), inf_->vld);
+    tm_sensitive(TM_MAKE_CPROC(&TmRingTargetPort::recv_rd_cmd_rsp), inf_->vld);
+    tm_sensitive(TM_MAKE_CPROC(&TmRingTargetPort::recv_wr_cmd_rsp), inf_->vld);
+    tm_sensitive(TM_MAKE_CPROC(&TmRingTargetPort::recv_wr_dat_rsp), inf_->vld);
 
     rd_req_q_ = tm_make_com_que(clk_, name_ + "_rd_req_q",
                                 cfg_->rd_req_fifo_depth);
@@ -49,15 +49,15 @@ TmMeshTargetPort::config(const std::string& name, p_tm_clk_t clk,
     wr_dat_q_ = tm_make_com_que(clk_, name_ + "_wr_dat_q",
                                 cfg_->wr_dat_fifo_depth);
 
-    tm_sensitive(TM_MAKE_CPROC(&TmMeshTargetPort::send_rd_cmd), rd_req_q_->vld);
-    tm_sensitive(TM_MAKE_CPROC(&TmMeshTargetPort::send_wr_cmd), wr_req_q_->vld);
-    tm_sensitive(TM_MAKE_CPROC(&TmMeshTargetPort::send_wr_dat), wr_dat_q_->vld);
+    tm_sensitive(TM_MAKE_CPROC(&TmRingTargetPort::send_rd_cmd), rd_req_q_->vld);
+    tm_sensitive(TM_MAKE_CPROC(&TmRingTargetPort::send_wr_cmd), wr_req_q_->vld);
+    tm_sensitive(TM_MAKE_CPROC(&TmRingTargetPort::send_wr_dat), wr_dat_q_->vld);
 
     reset();
 }
 
 void
-TmMeshTargetPort::reset()
+TmRingTargetPort::reset()
 {
     if (inf_ != nullptr) {
         inf_->reset();
@@ -78,7 +78,7 @@ TmMeshTargetPort::reset()
 }
 
 void
-TmMeshTargetPort::attach(uint32_t target_id,
+TmRingTargetPort::attach(uint32_t target_id,
                          std::shared_ptr<TmBusFlowCtrl> flow_ctrl,
                          const std::vector<p_tm_com_que_t>& rd_rsp_router_qs,
                          p_tm_com_que_t wr_req_rsp_router_q,
@@ -92,7 +92,7 @@ TmMeshTargetPort::attach(uint32_t target_id,
 }
 
 bool
-TmMeshTargetPort::idle() const
+TmRingTargetPort::idle() const
 {
     return (inf_ == nullptr || inf_->idle()) &&
            (rd_req_q_ == nullptr || rd_req_q_->empty()) &&
@@ -101,13 +101,13 @@ TmMeshTargetPort::idle() const
 }
 
 void
-TmMeshTargetPort::attach(p_tm_com_inf_t inf)
+TmRingTargetPort::attach(p_tm_com_inf_t inf)
 {
     inf_->connect(inf);
 }
 
 void
-TmMeshTargetPort::attach(p_tm_mem_t mem)
+TmRingTargetPort::attach(p_tm_mem_t mem)
 {
     if (mem != nullptr) {
         attach(mem->rw_inf_);
@@ -115,7 +115,7 @@ TmMeshTargetPort::attach(p_tm_mem_t mem)
 }
 
 p_tm_com_que_t
-TmMeshTargetPort::req_q(aic_req_type_t req_type) const
+TmRingTargetPort::req_q(aic_req_type_t req_type) const
 {
     if (req_type == aic_req_type_t::RD_REQ) {
         return rd_req_q_;
@@ -127,37 +127,37 @@ TmMeshTargetPort::req_q(aic_req_type_t req_type) const
 }
 
 bool
-TmMeshTargetPort::can_accept_request(aic_req_type_t req_type) const
+TmRingTargetPort::can_accept_request(aic_req_type_t req_type) const
 {
     return !req_q(req_type)->full();
 }
 
 void
-TmMeshTargetPort::accept_request(aic_req_type_t req_type, p_tm_pld_t pld)
+TmRingTargetPort::accept_request(aic_req_type_t req_type, p_tm_pld_t pld)
 {
     req_q(req_type)->push_back(pld);
 }
 
 bool
-TmMeshTargetPort::has_request(aic_req_type_t req_type) const
+TmRingTargetPort::has_request(aic_req_type_t req_type) const
 {
     return !req_q(req_type)->empty();
 }
 
 p_tm_pld_t
-TmMeshTargetPort::front_request(aic_req_type_t req_type) const
+TmRingTargetPort::front_request(aic_req_type_t req_type) const
 {
     return req_q(req_type)->front();
 }
 
 void
-TmMeshTargetPort::pop_request(aic_req_type_t req_type)
+TmRingTargetPort::pop_request(aic_req_type_t req_type)
 {
     req_q(req_type)->pop_front();
 }
 
 void
-TmMeshTargetPort::send_pending_requests()
+TmRingTargetPort::send_pending_requests()
 {
     send_rd_cmd();
     send_wr_cmd();
@@ -165,25 +165,25 @@ TmMeshTargetPort::send_pending_requests()
 }
 
 void
-TmMeshTargetPort::send_rd_cmd()
+TmRingTargetPort::send_rd_cmd()
 {
     send_cmd(aic_req_type_t::RD_REQ);
 }
 
 void
-TmMeshTargetPort::send_wr_cmd()
+TmRingTargetPort::send_wr_cmd()
 {
     send_cmd(aic_req_type_t::WR_REQ);
 }
 
 void
-TmMeshTargetPort::send_wr_dat()
+TmRingTargetPort::send_wr_dat()
 {
     send_cmd(aic_req_type_t::WR_DAT);
 }
 
 void
-TmMeshTargetPort::send_cmd(aic_req_type_t req_type)
+TmRingTargetPort::send_cmd(aic_req_type_t req_type)
 {
     auto q = req_q(req_type);
     if (q->empty()) {
@@ -209,7 +209,7 @@ TmMeshTargetPort::send_cmd(aic_req_type_t req_type)
 }
 
 void
-TmMeshTargetPort::recv_rd_cmd_rsp()
+TmRingTargetPort::recv_rd_cmd_rsp()
 {
     for (uint32_t lane = 0; lane < rd_rsp_port_num_; ++lane) {
         if (!has_response(aic_req_type_t::RD_REQ, lane)) {
@@ -228,7 +228,7 @@ TmMeshTargetPort::recv_rd_cmd_rsp()
 
         auto rsp = front_response(aic_req_type_t::RD_REQ, lane);
         rsp->cmd = PldCmd::RD_RSP;
-        rsp->ring_traffic_class = TmMeshRouter::traffic_class(PldCmd::RD_RSP);
+        rsp->ring_traffic_class = TmRingRouter::traffic_class(PldCmd::RD_RSP);
         rsp->ring_rsp_lane = lane;
         router_q->push_back(rsp);
         pop_response(aic_req_type_t::RD_REQ, lane);
@@ -240,7 +240,7 @@ TmMeshTargetPort::recv_rd_cmd_rsp()
 }
 
 void
-TmMeshTargetPort::recv_wr_cmd_rsp()
+TmRingTargetPort::recv_wr_cmd_rsp()
 {
     if (!has_response(aic_req_type_t::WR_REQ)) {
         return;
@@ -258,7 +258,7 @@ TmMeshTargetPort::recv_wr_cmd_rsp()
 
     auto rsp = front_response(aic_req_type_t::WR_REQ);
     rsp->cmd = PldCmd::WR_RSP;
-    rsp->ring_traffic_class = TmMeshRouter::traffic_class(PldCmd::WR_RSP);
+    rsp->ring_traffic_class = TmRingRouter::traffic_class(PldCmd::WR_RSP);
     router_q->push_back(rsp);
     pop_response(aic_req_type_t::WR_REQ);
 
@@ -268,7 +268,7 @@ TmMeshTargetPort::recv_wr_cmd_rsp()
 }
 
 void
-TmMeshTargetPort::recv_wr_dat_rsp()
+TmRingTargetPort::recv_wr_dat_rsp()
 {
     if (!has_response(aic_req_type_t::WR_DAT)) {
         return;
@@ -286,7 +286,7 @@ TmMeshTargetPort::recv_wr_dat_rsp()
 
     auto rsp = front_response(aic_req_type_t::WR_DAT);
     rsp->cmd = PldCmd::RSP;
-    rsp->ring_traffic_class = TmMeshRouter::traffic_class(PldCmd::RSP);
+    rsp->ring_traffic_class = TmRingRouter::traffic_class(PldCmd::RSP);
     router_q->push_back(rsp);
     pop_response(aic_req_type_t::WR_DAT);
 
@@ -296,25 +296,25 @@ TmMeshTargetPort::recv_wr_dat_rsp()
 }
 
 bool
-TmMeshTargetPort::has_response(aic_req_type_t rsp_type, uint32_t lane) const
+TmRingTargetPort::has_response(aic_req_type_t rsp_type, uint32_t lane) const
 {
     return inf_->valid(response_channel(rsp_type, lane));
 }
 
 p_tm_pld_t
-TmMeshTargetPort::front_response(aic_req_type_t rsp_type, uint32_t lane) const
+TmRingTargetPort::front_response(aic_req_type_t rsp_type, uint32_t lane) const
 {
     return inf_->get_pld(response_channel(rsp_type, lane));
 }
 
 void
-TmMeshTargetPort::pop_response(aic_req_type_t rsp_type, uint32_t lane)
+TmRingTargetPort::pop_response(aic_req_type_t rsp_type, uint32_t lane)
 {
     inf_->pop_pld(response_channel(rsp_type, lane));
 }
 
 p_tm_com_que_t
-TmMeshTargetPort::rsp_router_q(aic_req_type_t rsp_type, uint32_t lane) const
+TmRingTargetPort::rsp_router_q(aic_req_type_t rsp_type, uint32_t lane) const
 {
     if (rsp_type == aic_req_type_t::RD_REQ) {
         return rd_rsp_router_qs_[lane];
@@ -326,13 +326,13 @@ TmMeshTargetPort::rsp_router_q(aic_req_type_t rsp_type, uint32_t lane) const
 }
 
 tm_time_t&
-TmMeshTargetPort::next_req_issue_time(aic_req_type_t req_type)
+TmRingTargetPort::next_req_issue_time(aic_req_type_t req_type)
 {
     return next_req_issue_time_[static_cast<uint32_t>(req_type)];
 }
 
 tm_time_t&
-TmMeshTargetPort::next_rsp_issue_time(aic_req_type_t rsp_type, uint32_t lane)
+TmRingTargetPort::next_rsp_issue_time(aic_req_type_t rsp_type, uint32_t lane)
 {
     if (rsp_type == aic_req_type_t::RD_REQ) {
         return next_rd_rsp_issue_time_[lane];
@@ -344,7 +344,7 @@ TmMeshTargetPort::next_rsp_issue_time(aic_req_type_t rsp_type, uint32_t lane)
 }
 
 uint32_t
-TmMeshTargetPort::response_channel(aic_req_type_t rsp_type, uint32_t lane) const
+TmRingTargetPort::response_channel(aic_req_type_t rsp_type, uint32_t lane) const
 {
     if (rsp_type == aic_req_type_t::RD_REQ) {
         return static_cast<uint32_t>(aic_req_type_t::RD_REQ) + lane;
