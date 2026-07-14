@@ -3,9 +3,6 @@
 #include <algorithm>
 #include <cassert>
 #include <iostream>
-#include <utility>
-
-#include "tm_ring_router.h"
 
 using namespace tm_engine;
 
@@ -43,10 +40,10 @@ void TmRingLink::config(const std::string& name, p_tm_clk_t clk,
       std::max<uint32_t>(1, cfg_->ring_rsp_link_max_inflight);
 
   auto drain_proc = TM_MAKE_CPROC(&TmRingLink::drain_ready_packets);
-  ready_packets_.push_back(tm_make_que<Transit>(
+  ready_packets_.push_back(tm_make_que<p_tm_pld_t>(
       clk_, name_ + "_req_ready_packets",
       std::max<uint32_t>(1, cfg_->ring_req_fifo_depth), latency_));
-  ready_packets_.push_back(tm_make_que<Transit>(
+  ready_packets_.push_back(tm_make_que<p_tm_pld_t>(
       clk_, name_ + "_rsp_ready_packets",
       std::max<uint32_t>(1, cfg_->ring_rsp_fifo_depth), latency_));
   for (auto& q : ready_packets_) {
@@ -68,51 +65,42 @@ void TmRingLink::reset() {
 bool TmRingLink::idle() const {
   bool ret = true;
   for (auto& q : ready_packets_) {
-    ret = q->empty();
+    ret = ret && q->empty();
   }
   for (auto cnt : inflight_count_) {
-    ret = cnt == 0;
+    ret = ret && cnt == 0;
   }
   return ret;
 }
 
-bool TmRingLink::can_send(TmRingSubnet subnet, tm_time_t now) const {
-  uint32_t idx = tm_ring_subnet_index(subnet);
-  return now >= next_send_time_[idx] && !ready_packets_[idx]->full() &&
+bool TmRingLink::can_send(p_tm_pld_t pld) const {
+  uint32_t idx = pld->ring_subnet;
+  return time() >= next_send_time_[idx] && !ready_packets_[idx]->full() &&
          inflight_count_[idx] < max_inflight_[idx];
 }
 
-void TmRingLink::enqueue(TmRingSubnet subnet, p_tm_pld_t pld,
-                         uint32_t traffic_class, tm_time_t now) {
-  uint32_t idx = tm_ring_subnet_index(subnet);
-  uint32_t bytes = packet_bytes(traffic_class, pld);
+void TmRingLink::enqueue(p_tm_pld_t pld) {
+  uint32_t idx = pld->ring_subnet;
+  uint32_t bytes = packet_bytes(pld);
   uint32_t serialization_cycles =
       std::max<uint32_t>(1, (bytes + width_bytes_ - 1) / width_bytes_);
 
-  Transit transit;
-  transit.pld = pld;
-  transit.traffic_class = traffic_class;
-  transit.packet_bytes = bytes;
-  transit.serialization_cycles = serialization_cycles;
-  transit.tx_start_time = now;
-
-  ready_packets_[idx]->push_back(transit);
+  ready_packets_[idx]->push_back(pld);
   inflight_count_[idx]++;
   stats_[idx].packets++;
   stats_[idx].bytes += bytes;
   stats_[idx].busy_cycles += serialization_cycles;
   stats_[idx].inflight_peak =
       std::max(stats_[idx].inflight_peak, inflight_count_[idx]);
-  next_send_time_[idx] = now + serialization_cycles;
+  next_send_time_[idx] = time() + serialization_cycles;
 }
 
-uint32_t TmRingLink::packet_bytes(uint32_t traffic_class,
-                                  const p_tm_pld_t& pld) const {
+uint32_t TmRingLink::packet_bytes(p_tm_pld_t pld) const {
   if (pld == nullptr) {
     return 0;
   }
 
-  auto cmd = static_cast<PldCmd>(traffic_class);
+  auto cmd = static_cast<PldCmd>(pld->ring_traffic_class);
   if (cmd == PldCmd::RD || cmd == PldCmd::WR) {
     return cfg_->ring_req_header_bytes;
   }
@@ -130,41 +118,66 @@ const TmRingLink::LinkSubnetStats& TmRingLink::subnet_stats(
   return stats_[tm_ring_subnet_index(subnet)];
 }
 
-void TmRingLink::attach(dst_fifo_lookup_t dst_fifo_lookup) {
-  dst_fifo_lookup_ = std::move(dst_fifo_lookup);
+void TmRingLink::attach(p_tm_com_inf_t req_inf, p_tm_com_inf_t wr_dat_inf,
+                        const std::vector<p_tm_com_inf_t>& rd_rsp_infs,
+                        p_tm_com_inf_t wr_req_rsp_inf,
+                        p_tm_com_inf_t wr_dat_rsp_inf) {
+  req_inf_ = req_inf;
+  wr_dat_inf_ = wr_dat_inf;
+  rd_rsp_infs_ = rd_rsp_infs;
+  wr_req_rsp_inf_ = wr_req_rsp_inf;
+  wr_dat_rsp_inf_ = wr_dat_rsp_inf;
+}
+
+p_tm_com_inf_t TmRingLink::dst_inf(p_tm_pld_t pld) const {
+  auto cmd = static_cast<PldCmd>(pld->ring_traffic_class);
+  if (cmd == PldCmd::RD || cmd == PldCmd::WR) {
+    return req_inf_;
+  }
+  if (cmd == PldCmd::WR_DAT) {
+    return wr_dat_inf_;
+  }
+  if (cmd == PldCmd::WR_RSP) {
+    return wr_req_rsp_inf_;
+  }
+  if (cmd == PldCmd::RSP) {
+    return wr_dat_rsp_inf_;
+  }
+  if (pld->ring_rsp_lane < rd_rsp_infs_.size()) {
+    return rd_rsp_infs_[pld->ring_rsp_lane];
+  }
+  return nullptr;
 }
 
 void TmRingLink::drain_ready_packets() {
   for (uint32_t idx = 0; idx < ready_packets_.size(); ++idx) {
     auto& q = ready_packets_[idx];
     while (q->valid() && !q->empty()) {
-      auto transit = q->front();
-      if (transit.pld == nullptr) {
+      auto pld = q->front();
+      if (pld == nullptr) {
         stats_[idx].null_payload_drop++;
         if (inflight_count_[idx] > 0) {
           inflight_count_[idx]--;
         }
-        std::cerr << name_ << ": null payload in ring link transit"
+        std::cerr << name_ << ": null payload in ring link ready queue"
                   << std::endl;
         q->pop_front();
         continue;
       }
 
-      auto dst_fifo = dst_fifo_lookup_(dst_router_, dst_dir_,
-                                       transit.traffic_class, transit.pld);
-      if (dst_fifo == nullptr) {
+      auto dst_inf = this->dst_inf(pld);
+      if (dst_inf == nullptr) {
         stats_[idx].invalid_dst_stall++;
-        std::cerr << name_ << ": missing destination FIFO for traffic_class "
-                  << transit.traffic_class << std::endl;
-        assert(false && "TmRingLink missing destination FIFO");
+        std::cerr << name_ << ": missing destination inf for traffic_class "
+                  << pld->ring_traffic_class << std::endl;
+        assert(false && "TmRingLink missing destination inf");
         break;
       }
-      if (dst_fifo->full()) {
-        stats_[idx].downstream_fifo_full_stall++;
+      if (!dst_inf->send(pld)) {
+        stats_[idx].downstream_inf_full_stall++;
         break;
       }
 
-      dst_fifo->push_back(transit.pld);
       if (inflight_count_[idx] > 0) {
         inflight_count_[idx]--;
       }

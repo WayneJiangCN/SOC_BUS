@@ -54,6 +54,8 @@ TmBusFlowCtrl::config(p_tm_bus_cfg_t cfg)
 void
 TmBusFlowCtrl::reset()
 {
+    last_token_update_time_ = static_cast<tm_time_t>(-1);
+
     /* reset 时把所有 target 的资源恢复到满额状态。 */
     for (uint32_t i = 0; i < cfg_->num_targets; ++i) {
         auto target_cfg = cfg_->targets[i];
@@ -70,6 +72,11 @@ TmBusFlowCtrl::reset()
 void
 TmBusFlowCtrl::update_tokens(tm_time_t now)
 {
+    if (last_token_update_time_ == now) {
+        return;
+    }
+    last_token_update_time_ = now;
+
     /* token 周期性恢复，近似表达 target 可持续提供的带宽。 */
     for (uint32_t i = 0; i < cfg_->num_targets; ++i) {
         auto target_cfg = cfg_->targets[i];
@@ -119,17 +126,7 @@ TmBusFlowCtrl::can_send_to_target(uint32_t target_id, aic_req_type_t req_type,
            wr_bw_token_[target_id] >= size;
 }
 
-bool
-TmBusFlowCtrl::wr_grant_match(uint32_t grant_target_id, uint32_t grant_gid,
-                              uint32_t target_id, p_tm_pld_t pld,
-                              bool strict_order) const
-{
-    /* 严格模式下，WR_DAT 必须与 grant 队头 gid 完整匹配。 */
-    if (strict_order && grant_gid != pld->gid) {
-        return false;
-    }
-    return grant_target_id == target_id;
-}
+
 
 void
 TmBusFlowCtrl::consume_target_credit(uint32_t target_id,

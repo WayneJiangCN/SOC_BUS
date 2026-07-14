@@ -85,6 +85,7 @@ TmPld::TmPld(std::shared_ptr<TmPld> pld)
 , smmu_tnx_id(pld->smmu_tnx_id)
 , ring_in_dir(pld->ring_in_dir)
 , ring_out_dir(pld->ring_out_dir)
+, ring_subnet(pld->ring_subnet)
 , ring_traffic_class(pld->ring_traffic_class)
 , ring_rsp_lane(pld->ring_rsp_lane)
 {

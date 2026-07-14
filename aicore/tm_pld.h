@@ -71,6 +71,7 @@ public:
     uint32_t smmu_tnx_id = 0;
     uint32_t ring_in_dir = 0;
     uint32_t ring_out_dir = 0;
+    uint32_t ring_subnet = 0;
     uint32_t ring_traffic_class = 0;
     uint32_t ring_rsp_lane = 0;
 private:
@@ -117,12 +118,12 @@ inline uint64_t tm_pld_txn_key(p_tm_pld_t pld) {
 
 inline void tm_pld_set_ring_route(p_tm_pld_t pld, uint32_t req_type,
                                   uint32_t target_id, uint32_t src_node,
-                                  uint32_t dst_node, uint64_t now) {
+                                  uint32_t dst_node) {
     pld->type_id = req_type;
     pld->slv_id = target_id;
     pld->mst_addr = src_node;
     pld->slv_addr = dst_node;
-    pld->ts = now;
+    pld->ts = time();
 }
 
 inline uint32_t tm_pld_req_type(p_tm_pld_t pld) {

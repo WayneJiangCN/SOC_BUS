@@ -49,21 +49,6 @@ TmRingFabric::config()
 
     topology_->reset(cfg_->num_masters);
 
-    uint32_t token_period = 0;
-    for (const auto& target_cfg : cfg_->targets) {
-        if (target_cfg != nullptr && target_cfg->token_update_period > 0) {
-            if (token_period == 0) {
-                token_period = target_cfg->token_update_period;
-            } else {
-                token_period = std::min(token_period,
-                                        target_cfg->token_update_period);
-            }
-        }
-    }
-    if (token_period > 0) {
-        token_clk_ = tm_make_clk(this->name() + "_token_clk", token_period);
-    }
-
     for (uint32_t i = 0; i < cfg_->num_masters; ++i) {
         master_nius_.push_back(tm_make_ring_inf(
             this->name() + "_master_niu" + std::to_string(i), clk_, i, cfg_));
@@ -111,18 +96,15 @@ TmRingFabric::config()
             continue;
         }
         uint32_t source_router = topology_->master_node(i);
-        niu->attach(i, topology_, flow_ctrl_,
-                    get_router_req_fifo(source_router, TmRingPortDir::LOCAL,
-                                        aic_req_type_t::RD_REQ),
-                    get_router_req_fifo(source_router, TmRingPortDir::LOCAL,
-                                        aic_req_type_t::WR_DAT),
-                    [this](aic_req_type_t req_type) {
-                        return reserve_global_osd(req_type);
-                    });
+        niu->attach(i, topology_,
+                    get_router_req_inf(source_router, TmRingPortDir::LOCAL,
+                                       PldCmd::RD),
+                    get_router_req_inf(source_router, TmRingPortDir::LOCAL,
+                                       PldCmd::WR_DAT));
     }
 
     // Routers own route calculation, link backpressure and link injection.
-    // Fabric remains the local endpoint for target/NIU protocol handling.
+    // LOCAL ejection is handled in the router against local NIU/TargetPort.
     for (uint32_t router_id = 0; router_id < routers_.size(); ++router_id) {
         auto router = routers_[router_id];
         if (router == nullptr) {
@@ -142,37 +124,30 @@ TmRingFabric::config()
                                                        TmRingPortDir::WEST),
                                    TmRingPortDir::EAST)
                              : nullptr;
-        router->attach(router_id, topology_, east_link, west_link, this);
+        router->attach(router_id, topology_, east_link, west_link,
+                       &master_nius_, &target_ports_, this);
     }
 
     // Link queues own their local vld binding. Fabric only provides the target
-    // FIFO lookup.
+    // router input-port lookup.
     for (const auto& it : links_) {
         auto link = it.second;
         if (link != nullptr) {
+            std::vector<p_tm_com_inf_t> rd_rsp_infs;
+            for (uint32_t lane = 0; lane < cfg_->rd_rsp_port_num; ++lane) {
+                rd_rsp_infs.push_back(get_router_rd_rsp_inf(
+                    link->dst_router(), link->dst_dir(), lane));
+            }
             link->attach(
-                [this](uint32_t dst_router, TmRingPortDir dst_dir,
-                       uint32_t traffic_class, p_tm_pld_t pld) {
-                    auto cmd = static_cast<PldCmd>(traffic_class);
-                    if (cmd == PldCmd::RD || cmd == PldCmd::WR) {
-                        return get_router_req_fifo(dst_router, dst_dir,
-                                                   static_cast<aic_req_type_t>(
-                                                       tm_pld_req_type(pld)));
-                    }
-                    if (cmd == PldCmd::WR_DAT) {
-                        return get_router_req_fifo(dst_router, dst_dir,
-                                                   aic_req_type_t::WR_DAT);
-                    }
-                    if (cmd == PldCmd::WR_RSP) {
-                        return get_router_wr_req_rsp_fifo(dst_router, dst_dir);
-                    }
-                    if (cmd == PldCmd::RSP) {
-                        return get_router_wr_dat_rsp_fifo(dst_router, dst_dir);
-                    }
-
-                    return get_router_rd_rsp_fifo(dst_router, dst_dir,
-                                                  pld->ring_rsp_lane);
-                });
+                get_router_req_inf(link->dst_router(), link->dst_dir(),
+                                   PldCmd::RD),
+                get_router_req_inf(link->dst_router(), link->dst_dir(),
+                                   PldCmd::WR_DAT),
+                rd_rsp_infs,
+                get_router_wr_req_rsp_inf(link->dst_router(),
+                                          link->dst_dir()),
+                get_router_wr_dat_rsp_inf(link->dst_router(),
+                                          link->dst_dir()));
         }
     }
 
@@ -185,20 +160,15 @@ TmRingFabric::config()
         }
 
         uint32_t router_id = topology_->target_node(target_id);
-        std::vector<p_tm_com_que_t> rd_rsp_qs;
+        std::vector<p_tm_com_inf_t> rd_rsp_infs;
         for (uint32_t lane = 0; lane < cfg_->rd_rsp_port_num; ++lane) {
-            rd_rsp_qs.push_back(get_router_rd_rsp_fifo(
+            rd_rsp_infs.push_back(get_router_rd_rsp_inf(
                 router_id, TmRingPortDir::LOCAL, lane));
         }
         target_port->attach(
-            target_id, flow_ctrl_, rd_rsp_qs,
-            get_router_wr_req_rsp_fifo(router_id, TmRingPortDir::LOCAL),
-            get_router_wr_dat_rsp_fifo(router_id, TmRingPortDir::LOCAL));
-    }
-
-    if (token_clk_ != nullptr) {
-        tm_sensitive(TM_MAKE_CPROC(&TmRingFabric::update_target_tokens),
-                     token_clk_->pos_edge);
+            target_id, flow_ctrl_, rd_rsp_infs,
+            get_router_wr_req_rsp_inf(router_id, TmRingPortDir::LOCAL),
+            get_router_wr_dat_rsp_inf(router_id, TmRingPortDir::LOCAL));
     }
 
     reset();
@@ -235,8 +205,6 @@ TmRingFabric::reset()
         }
     }
 
-    global_outstanding_ = 0;
-
     flow_ctrl_->reset();
 }
 
@@ -257,19 +225,7 @@ TmRingFabric::idle()
     for (const auto& it : links_) {
         ret = ret && (it.second == nullptr || it.second->idle());
     }
-    ret = ret && global_outstanding_ == 0;
     return ret;
-}
-
-void
-TmRingFabric::update_target_tokens()
-{
-    flow_ctrl_->update_tokens(time());
-    for (auto& target_port : target_ports_) {
-        if (target_port != nullptr) {
-            target_port->send_pending_requests();
-        }
-    }
 }
 
 void
@@ -282,14 +238,11 @@ TmRingFabric::attach_master(uint32_t idx, p_tm_ring_inf_t inf)
     inf->set_master_id(topology_->port_master_id(idx));
     master_nius_[idx] = inf;
     uint32_t source_router = topology_->master_node(idx);
-    inf->attach(idx, topology_, flow_ctrl_,
-                get_router_req_fifo(source_router, TmRingPortDir::LOCAL,
-                                    aic_req_type_t::RD_REQ),
-                get_router_req_fifo(source_router, TmRingPortDir::LOCAL,
-                                    aic_req_type_t::WR_DAT),
-                [this](aic_req_type_t req_type) {
-                    return reserve_global_osd(req_type);
-                });
+    inf->attach(idx, topology_,
+                get_router_req_inf(source_router, TmRingPortDir::LOCAL,
+                                   PldCmd::RD),
+                get_router_req_inf(source_router, TmRingPortDir::LOCAL,
+                                   PldCmd::WR_DAT));
 }
 
 void
@@ -399,36 +352,36 @@ TmRingFabric::canSendWrReq(uint32_t master_port)
     return master_nius_[master_port]->can_send_wr_req();
 }
 
-p_tm_com_que_t
-TmRingFabric::get_router_req_fifo(uint32_t router_id, TmRingPortDir in_dir,
-                                  aic_req_type_t req_type) const
+p_tm_com_inf_t
+TmRingFabric::get_router_req_inf(uint32_t router_id, TmRingPortDir in_dir,
+                                 PldCmd cmd) const
 {
     auto router = routers_[router_id];
-    if (req_type == aic_req_type_t::WR_DAT) {
-        return router->wr_dat_q(in_dir);
+    if (cmd == PldCmd::WR_DAT) {
+        return router->wr_dat_inf(in_dir);
     }
-    return router->req_q(in_dir);
+    return router->req_inf(in_dir);
 }
 
-p_tm_com_que_t
-TmRingFabric::get_router_rd_rsp_fifo(uint32_t router_id, TmRingPortDir in_dir,
-                                     uint32_t lane) const
+p_tm_com_inf_t
+TmRingFabric::get_router_rd_rsp_inf(uint32_t router_id, TmRingPortDir in_dir,
+                                    uint32_t lane) const
 {
-    return routers_[router_id]->rd_rsp_q(in_dir, lane);
+    return routers_[router_id]->rd_rsp_inf(in_dir, lane);
 }
 
-p_tm_com_que_t
-TmRingFabric::get_router_wr_req_rsp_fifo(uint32_t router_id,
-                                         TmRingPortDir in_dir) const
+p_tm_com_inf_t
+TmRingFabric::get_router_wr_req_rsp_inf(uint32_t router_id,
+                                        TmRingPortDir in_dir) const
 {
-    return routers_[router_id]->wr_req_rsp_q(in_dir);
+    return routers_[router_id]->wr_req_rsp_inf(in_dir);
 }
 
-p_tm_com_que_t
-TmRingFabric::get_router_wr_dat_rsp_fifo(uint32_t router_id,
-                                         TmRingPortDir in_dir) const
+p_tm_com_inf_t
+TmRingFabric::get_router_wr_dat_rsp_inf(uint32_t router_id,
+                                        TmRingPortDir in_dir) const
 {
-    return routers_[router_id]->wr_dat_rsp_q(in_dir);
+    return routers_[router_id]->wr_dat_rsp_inf(in_dir);
 }
 
 p_tm_ring_link_t

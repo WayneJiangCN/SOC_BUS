@@ -54,6 +54,32 @@ tm_ring_subnet_index(TmRingSubnet subnet)
     return static_cast<uint32_t>(subnet);
 }
 
+inline constexpr bool
+tm_ring_is_req_cmd(PldCmd cmd)
+{
+    return cmd == PldCmd::RD || cmd == PldCmd::WR || cmd == PldCmd::WR_DAT;
+}
+
+inline constexpr aic_req_type_t
+tm_ring_cmd_to_req(PldCmd cmd)
+{
+    return cmd == PldCmd::RD ? aic_req_type_t::RD_REQ
+         : cmd == PldCmd::WR ? aic_req_type_t::WR_REQ
+                             : aic_req_type_t::WR_DAT;
+}
+
+inline constexpr uint32_t
+tm_ring_cmd_bus_channel(PldCmd cmd)
+{
+    return static_cast<uint32_t>(tm_ring_cmd_to_req(cmd));
+}
+
+inline constexpr uint32_t
+tm_ring_rd_rsp_bus_channel(uint32_t lane)
+{
+    return static_cast<uint32_t>(aic_req_type_t::RD_REQ) + lane;
+}
+
 inline constexpr TmRingPortDir
 tm_ring_opposite_dir(TmRingPortDir dir)
 {
@@ -78,36 +104,24 @@ struct TmRingCfg
     uint32_t master_inf_depth = 4;
     uint32_t target_inf_depth = 4;
 
-
-    uint32_t master_wr_grant_fifo_depth = 8;
     uint32_t master_rd_osd = 8;
     uint32_t master_wr_osd = 8;
     uint32_t global_osd = 128;
 
     uint32_t ring_req_fifo_depth = 4;
     uint32_t ring_rsp_fifo_depth = 4;
+    uint32_t ring_router_input_depth = 1;
     uint32_t ring_link_latency = 1;
     uint32_t ring_link_width_bytes = 16;
     uint32_t ring_req_header_bytes = 16;
     uint32_t ring_rsp_header_bytes = 16;
     uint32_t ring_req_link_max_inflight = 8;
     uint32_t ring_rsp_link_max_inflight = 8;
-
-    bool strict_wr_grant_order = true;
-
     std::vector<p_tm_ring_target_cfg_t> targets;
 };
 
 using tm_ring_cfg_t = TmRingCfg;
 using p_tm_ring_cfg_t = std::shared_ptr<tm_ring_cfg_t>;
-
-class TmRingLocalEndpoint
-{
-  public:
-    virtual ~TmRingLocalEndpoint() = default;
-    virtual bool can_accept_local(p_tm_pld_t pld) = 0;
-    virtual bool accept_local(p_tm_pld_t pld) = 0;
-};
 
 struct TmRingRdRspState
 {

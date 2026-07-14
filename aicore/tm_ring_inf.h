@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 
-#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -17,19 +16,13 @@
 #include "tm_ring_types.h"
 #include "tm_que.h"
 
-using tm_ring_grant_que_t = TmQue<p_tm_pld_t>;
-using p_tm_ring_grant_que_t = std::shared_ptr<tm_ring_grant_que_t>;
-
-class TmBusFlowCtrl;
 using tm_ring_topology_t = TmRingTopology;
 using p_tm_ring_topology_t = std::shared_ptr<tm_ring_topology_t>;
-using tm_ring_flow_ctrl_t = TmBusFlowCtrl;
-using p_tm_ring_flow_ctrl_t = std::shared_ptr<tm_ring_flow_ctrl_t>;
-using tm_ring_osd_reserve_t = std::function<bool(aic_req_type_t)>;
 
 struct TmRingInfApiReq
 {
-    aic_req_type_t req_type = aic_req_type_t::RD_REQ;
+    PldCmd cmd = PldCmd::RD;
+    p_tm_pld_t req = nullptr;
     uint32_t rsp_expected = 1;
     uint32_t rsp_seen = 0;
 };
@@ -54,9 +47,8 @@ class TmRingInf : public tm_engine::TmModule
 
     void attach(p_tm_com_inf_t inf);
     void attach(uint32_t master_port, p_tm_ring_topology_t topology,
-                p_tm_ring_flow_ctrl_t flow_ctrl, p_tm_com_que_t router_req_q,
-                p_tm_com_que_t router_wr_dat_q,
-                tm_ring_osd_reserve_t global_osd_reserve = nullptr);
+                p_tm_com_inf_t router_req_inf,
+                p_tm_com_inf_t router_wr_dat_inf);
     void set_master_id(uint32_t mst_id);
 
     uint32_t send_rd_req(uint64_t address, uint32_t size);
@@ -69,14 +61,20 @@ class TmRingInf : public tm_engine::TmModule
     void recv_rd_cmd();
     void recv_wr_cmd();
     void recv_wr_dat();
+    void send_rd_cmd();
+    void send_wr_cmd();
+    void send_wr_dat();
+    void send_rd_rsp();
+    void send_wr_dat_rsp();
+    bool recv_rsp(p_tm_pld_t rsp);
 
-    void pop_pending_grant();
     void release_read_osd();
     void release_write_osd();
+    bool can_accept_rsp(p_tm_pld_t rsp);
 
-    bool accept_read_response(p_tm_pld_t rsp, uint32_t lane);
-    bool accept_write_request_response(p_tm_pld_t rsp);
-    bool accept_write_data_response(p_tm_pld_t rsp);
+    bool accept_rd_rsp(p_tm_pld_t rsp);
+    bool accept_wr_req_rsp(p_tm_pld_t rsp);
+    bool accept_wr_dat_rsp(p_tm_pld_t rsp);
 
   public:
     p_tm_com_inf_t bus_inf_ = nullptr;
@@ -86,36 +84,37 @@ class TmRingInf : public tm_engine::TmModule
     tm_engine::p_tm_clk_t clk_ = nullptr;
     p_tm_ring_cfg_t cfg_ = nullptr;
 
-    p_tm_ring_grant_que_t wr_grant_fifo_ = nullptr;
-
     uint32_t master_port_ = 0;
     p_tm_ring_topology_t topology_ = nullptr;
-    p_tm_ring_flow_ctrl_t flow_ctrl_ = nullptr;
-    p_tm_com_que_t router_req_q_ = nullptr;
-    p_tm_com_que_t router_wr_dat_q_ = nullptr;
-    tm_ring_osd_reserve_t global_osd_reserve_ = nullptr;
+    p_tm_com_inf_t router_req_inf_ = nullptr;
+    p_tm_com_inf_t router_wr_dat_inf_ = nullptr;
+    p_tm_com_que_t rd_cmds_ = nullptr;
+    p_tm_com_que_t wr_cmds_ = nullptr;
+    p_tm_com_que_t wr_data_ = nullptr;
+    std::vector<p_tm_com_que_t> rd_rsp_qs_;
+    p_tm_com_que_t wr_dat_rsp_q_ = nullptr;
 
-    std::vector<std::pair<uint32_t, p_tm_pld_t>> bus_req_list_;
-    std::unordered_map<uint32_t, TmRingInfApiReq> api_req_map_;
+    std::unordered_map<uint32_t, TmRingInfApiReq> req_map_;
+    std::unordered_map<uint64_t, p_tm_pld_t> pending_writes_;
 
     uint32_t req_id_ = 0;
     uint32_t rd_outstanding_ = 0;
     uint32_t wr_outstanding_ = 0;
 
   protected:
-    uint32_t response_channel(aic_req_type_t req_type,
-                              uint32_t lane = 0) const;
+    uint32_t response_channel(PldCmd cmd, uint32_t lane = 0) const;
 
-    bool issue_cmd_to_ring(aic_req_type_t req_type, p_tm_pld_t pld);
-    void prepare_request_metadata(p_tm_pld_t pld, aic_req_type_t req_type);
-    bool can_reserve_master_osd(aic_req_type_t req_type) const;
-    bool reserve_transaction_osd(aic_req_type_t req_type);
-    void track_api_request(uint32_t req_id, p_tm_pld_t req,
-                           aic_req_type_t req_type);
-    void retire_tracked_request(p_tm_pld_t rsp);
-    bool retire_api_read_response(p_tm_pld_t rsp);
-    bool retire_api_write_response(p_tm_pld_t rsp);
-    bool is_api_write_request(p_tm_pld_t rsp) const;
+    void recv_cmd(PldCmd cmd);
+    void send_cmd(PldCmd cmd);
+    p_tm_com_que_t req_queue(PldCmd cmd) const;
+    bool issue_cmd_to_ring(PldCmd cmd, p_tm_pld_t pld);
+    void prepare_request_metadata(p_tm_pld_t pld, PldCmd cmd);
+    bool can_reserve_master_osd(PldCmd cmd) const;
+
+    void track_request(uint32_t req_id, p_tm_pld_t req, PldCmd cmd);
+    p_tm_pld_t make_write_data(p_tm_pld_t grant);
+    bool retire_read_response(p_tm_pld_t rsp);
+    bool retire_write_response(p_tm_pld_t rsp);
 };
 
 using tm_ring_inf_t = TmRingInf;

@@ -23,9 +23,7 @@ class TmBusFlowCtrl
 
     bool can_send_to_target(uint32_t target_id, aic_req_type_t req_type,
                             p_tm_pld_t pld) const;
-    bool wr_grant_match(uint32_t grant_target_id, uint32_t grant_gid,
-                        uint32_t target_id, p_tm_pld_t pld,
-                        bool strict_order) const;
+
 
     void consume_target_credit(uint32_t target_id, aic_req_type_t req_type,
                                p_tm_pld_t pld);
@@ -52,6 +50,8 @@ class TmBusFlowCtrl
     std::vector<uint32_t> rd_bw_token_;
     std::vector<uint32_t> wr_bw_token_;
     std::vector<uint32_t> target_outstanding_;
+    tm_engine::tm_time_t last_token_update_time_ =
+        static_cast<tm_engine::tm_time_t>(-1);
 };
 
 #endif  // _TM_BUS_FLOW_CTRL_H_

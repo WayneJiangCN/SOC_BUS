@@ -43,7 +43,7 @@ using p_tm_ring_target_port_t = std::shared_ptr<tm_ring_target_port_t>;
  * target ports. The fine-grained queue events stay inside each submodule; the
  * fabric callbacks only advance the affected link/router path.
  */
-class TmRingFabric : public tm_engine::TmModule, public TmRingLocalEndpoint
+class TmRingFabric : public tm_engine::TmModule
 {
   public:
     TmRingFabric();
@@ -54,8 +54,6 @@ class TmRingFabric : public tm_engine::TmModule, public TmRingLocalEndpoint
     virtual void build();
     virtual void reset();
     virtual bool idle();
-
-    virtual void update_target_tokens();
 
     virtual void attach_master(uint32_t idx, p_tm_ring_inf_t inf);
     virtual void attach_master(p_tm_ring_inf_t inf);
@@ -73,6 +71,8 @@ class TmRingFabric : public tm_engine::TmModule, public TmRingLocalEndpoint
     virtual bool canSendRdReq(uint32_t master_port);
     virtual bool canSendWrReq(uint32_t master_port);
 
+    void complete_master_response(p_tm_pld_t pld);
+
   protected:
     tm_engine::p_tm_clk_t clk_ = nullptr;
     p_tm_ring_cfg_t cfg_ = nullptr;
@@ -84,30 +84,22 @@ class TmRingFabric : public tm_engine::TmModule, public TmRingLocalEndpoint
 
     std::unordered_map<uint64_t, TmRingRdRspState> rd_rsp_states_;
 
-    tm_engine::p_tm_clk_t token_clk_ = nullptr;
-
     uint32_t ring_router_count_ = 0;
     uint32_t ring_link_latency_ = 1;
-    uint32_t global_outstanding_ = 0;
 
     std::shared_ptr<TmRingTopology> topology_;
     std::shared_ptr<TmBusFlowCtrl> flow_ctrl_;
 
   protected:
-    bool can_accept_local(p_tm_pld_t pld) override;
-    bool accept_local(p_tm_pld_t pld) override;
-    bool reserve_global_osd(aic_req_type_t req_type);
-    void release_global_osd(aic_req_type_t req_type);
-
-    p_tm_com_que_t get_router_req_fifo(uint32_t router_id,
+    p_tm_com_inf_t get_router_req_inf(uint32_t router_id,
                                        TmRingPortDir in_dir,
-                                       aic_req_type_t req_type) const;
-    p_tm_com_que_t get_router_rd_rsp_fifo(uint32_t router_id,
+                                       PldCmd cmd) const;
+    p_tm_com_inf_t get_router_rd_rsp_inf(uint32_t router_id,
                                           TmRingPortDir in_dir,
                                           uint32_t lane) const;
-    p_tm_com_que_t get_router_wr_req_rsp_fifo(uint32_t router_id,
+    p_tm_com_inf_t get_router_wr_req_rsp_inf(uint32_t router_id,
                                               TmRingPortDir in_dir) const;
-    p_tm_com_que_t get_router_wr_dat_rsp_fifo(uint32_t router_id,
+    p_tm_com_inf_t get_router_wr_dat_rsp_inf(uint32_t router_id,
                                               TmRingPortDir in_dir) const;
 
     p_tm_ring_link_t get_ring_link(uint32_t src_router_id,

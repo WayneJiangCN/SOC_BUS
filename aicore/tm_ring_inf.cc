@@ -1,17 +1,18 @@
 #include "tm_ring_inf.h"
 
 #include <algorithm>
+#include <cassert>
+#include <iostream>
 #include <utility>
 #include <vector>
 
-#include "tm_bus_flow_ctrl.h"
 #include "tm_pld.h"
 
 using namespace std;
 using namespace tm_engine;
 
-TmRingInf::TmRingInf(const std::string& name, p_tm_clk_t clk,
-                         uint32_t inf_id, p_tm_ring_cfg_t cfg)
+TmRingInf::TmRingInf(const std::string& name, p_tm_clk_t clk, uint32_t inf_id,
+                     p_tm_ring_cfg_t cfg)
     : TmModule(name), clk_(clk), cfg_(cfg), inf_id_(inf_id) {
   config();
 }
@@ -20,7 +21,8 @@ TmRingInf::~TmRingInf() {}
 
 void TmRingInf::config() {
   uint32_t chan_num =
-      static_cast<uint32_t>(aic_req_type_t::RD_REQ) + cfg_->rd_rsp_port_num;
+      std::max<uint32_t>(tm_ring_cmd_bus_channel(PldCmd::WR_DAT) + 1,
+                         tm_ring_rd_rsp_bus_channel(0) + cfg_->rd_rsp_port_num);
 
   bus_inf_ =
       tm_make_com_inf(clk_, this->name() + "_bus_inf", cfg_->master_inf_depth);
@@ -29,43 +31,68 @@ void TmRingInf::config() {
   tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_wr_cmd), bus_inf_->vld);
   tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_wr_dat), bus_inf_->vld);
 
-  wr_grant_fifo_ = tm_make_que<p_tm_pld_t>(
-      clk_, this->name() + "_wr_grant_fifo", cfg_->master_wr_grant_fifo_depth);
+  rd_cmds_ =
+      tm_make_com_que(clk_, this->name() + "_rd_cmds", cfg_->master_inf_depth);
+  wr_cmds_ =
+      tm_make_com_que(clk_, this->name() + "_wr_cmds", cfg_->master_inf_depth);
+  wr_data_ =
+      tm_make_com_que(clk_, this->name() + "_wr_data", cfg_->master_inf_depth);
+  tm_sensitive(TM_MAKE_CPROC(&TmRingInf::send_rd_cmd), rd_cmds_->vld);
+  tm_sensitive(TM_MAKE_CPROC(&TmRingInf::send_wr_cmd), wr_cmds_->vld);
+  tm_sensitive(TM_MAKE_CPROC(&TmRingInf::send_wr_dat), wr_data_->vld);
+
+  rd_rsp_qs_.clear();
+  auto send_rd_rsp_proc = TM_MAKE_CPROC(&TmRingInf::send_rd_rsp);
+  for (uint32_t lane = 0; lane < cfg_->rd_rsp_port_num; ++lane) {
+    rd_rsp_qs_.push_back(tm_make_com_que(
+        clk_, this->name() + "_rd_rsp_q_" + std::to_string(lane),
+        cfg_->master_inf_depth));
+    tm_sensitive(send_rd_rsp_proc, rd_rsp_qs_.back()->vld);
+  }
+
+  wr_dat_rsp_q_ = tm_make_com_que(clk_, this->name() + "_wr_dat_rsp_q",
+                                  cfg_->master_inf_depth);
+  tm_sensitive(TM_MAKE_CPROC(&TmRingInf::send_wr_dat_rsp), wr_dat_rsp_q_->vld);
 
   reset();
 }
 
 void TmRingInf::reset() {
   bus_inf_->reset();
-  wr_grant_fifo_->clear();
-  bus_req_list_.clear();
-  api_req_map_.clear();
+  rd_cmds_->clear();
+  wr_cmds_->clear();
+  wr_data_->clear();
+  for (auto& q : rd_rsp_qs_) {
+    q->clear();
+  }
+  wr_dat_rsp_q_->clear();
+  req_map_.clear();
+  pending_writes_.clear();
   req_id_ = 0;
   rd_outstanding_ = 0;
   wr_outstanding_ = 0;
 }
 
 bool TmRingInf::idle() {
-  return bus_inf_->idle() && wr_grant_fifo_->empty() && bus_req_list_.empty() &&
-         api_req_map_.empty() && rd_outstanding_ == 0 && wr_outstanding_ == 0;
+  bool rsp_idle = wr_dat_rsp_q_->empty();
+  for (auto& q : rd_rsp_qs_) {
+    rsp_idle = rsp_idle && q->empty();
+  }
+  return bus_inf_->idle() && rsp_idle && rd_cmds_->empty() &&
+         wr_cmds_->empty() && wr_data_->empty() && req_map_.empty() &&
+         pending_writes_.empty() && rd_outstanding_ == 0 &&
+         wr_outstanding_ == 0;
 }
 
 void TmRingInf::attach(p_tm_com_inf_t inf) { bus_inf_->connect(inf); }
 
 void TmRingInf::attach(uint32_t master_port, p_tm_ring_topology_t topology,
-                         p_tm_ring_flow_ctrl_t flow_ctrl,
-                         p_tm_com_que_t router_req_q,
-                         p_tm_com_que_t router_wr_dat_q,
-                         tm_ring_osd_reserve_t global_osd_reserve) {
+                       p_tm_com_inf_t router_req_inf,
+                       p_tm_com_inf_t router_wr_dat_inf) {
   master_port_ = master_port;
   topology_ = topology;
-  flow_ctrl_ = flow_ctrl;
-  router_req_q_ = router_req_q;
-  router_wr_dat_q_ = router_wr_dat_q;
-  global_osd_reserve_ = std::move(global_osd_reserve);
-  tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_rd_cmd), router_req_q_->rdy);
-  tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_wr_cmd), router_req_q_->rdy);
-  tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_wr_dat), router_wr_dat_q_->rdy);
+  router_req_inf_ = router_req_inf;
+  router_wr_dat_inf_ = router_wr_dat_inf;
 }
 
 void TmRingInf::set_master_id(uint32_t mst_id) { inf_id_ = mst_id; }
@@ -78,123 +105,176 @@ uint32_t TmRingInf::send_rd_req(uint64_t address, uint32_t size) {
 
   uint32_t cur_req_id = req_id_++;
   req->gid = cur_req_id;
-  if (!issue_cmd_to_ring(aic_req_type_t::RD_REQ, req)) {
+  if (rd_cmds_->full()) {
     return static_cast<uint32_t>(-1);
   }
-  track_api_request(cur_req_id, req, aic_req_type_t::RD_REQ);
+  rd_cmds_->push_back(req);
+  track_request(cur_req_id, req, PldCmd::RD);
   return cur_req_id;
 }
 
 uint32_t TmRingInf::send_wr_req(uint64_t address, uint32_t size) {
   auto req = tm_make_pld(PldCmd::WR, address, size);
-  req->buf_u32 = make_shared<vector<uint32_t>>(size, 0);
+  req->buf_u32 = make_shared<vector<uint32_t>>(size, 1);
   req->data = pld_data_t((req->buf_u32)->data());
   req->mst_id = inf_id_;
 
   uint32_t cur_req_id = req_id_++;
   req->gid = cur_req_id;
-  if (!issue_cmd_to_ring(aic_req_type_t::WR_REQ, req)) {
+  if (wr_cmds_->full()) {
     return static_cast<uint32_t>(-1);
   }
-  track_api_request(cur_req_id, req, aic_req_type_t::WR_REQ);
+  wr_cmds_->push_back(req);
+  track_request(cur_req_id, req, PldCmd::WR);
   return cur_req_id;
 }
 
 bool TmRingInf::is_request_completed(uint32_t req_id) {
-  auto iter = find_if(bus_req_list_.begin(), bus_req_list_.end(),
-                      [req_id](const pair<uint32_t, p_tm_pld_t>& req) {
-                        return req.first == req_id;
-                      });
-  return iter == bus_req_list_.end();
+  return req_map_.find(req_id) == req_map_.end();
 }
 
 bool TmRingInf::can_send_rd_req() {
-  return rd_outstanding_ < cfg_->master_rd_osd && !router_req_q_->full();
+  return rd_outstanding_ < cfg_->master_rd_osd && !rd_cmds_->full();
 }
 
 bool TmRingInf::can_send_wr_req() {
-  return wr_outstanding_ < cfg_->master_wr_osd && !router_req_q_->full();
+  return wr_outstanding_ < cfg_->master_wr_osd && !wr_cmds_->full();
 }
 
-void TmRingInf::recv_rd_cmd() {
-  auto req_type = aic_req_type_t::RD_REQ;
-  uint32_t chan = static_cast<uint32_t>(req_type);
+void TmRingInf::recv_rd_cmd() { recv_cmd(PldCmd::RD); }
 
-  if (bus_inf_->valid(chan)) {
+void TmRingInf::recv_wr_cmd() { recv_cmd(PldCmd::WR); }
+
+void TmRingInf::recv_wr_dat() { recv_cmd(PldCmd::WR_DAT); }
+
+void TmRingInf::send_rd_cmd() { send_cmd(PldCmd::RD); }
+
+void TmRingInf::send_wr_cmd() { send_cmd(PldCmd::WR); }
+
+void TmRingInf::send_wr_dat() { send_cmd(PldCmd::WR_DAT); }
+
+void TmRingInf::send_rd_rsp() {
+  for (uint32_t lane = 0; lane < rd_rsp_qs_.size(); ++lane) {
+    auto q = rd_rsp_qs_[lane];
+    if (q->empty()) {
+      continue;
+    }
+
+    auto rsp = q->front();
+    if (bus_inf_->send(response_channel(PldCmd::RD, lane), rsp)) {
+      q->pop_front();
+    }
+  }
+}
+
+void TmRingInf::send_wr_dat_rsp() {
+  auto rsp = wr_dat_rsp_q_->front();
+  if (bus_inf_->send(response_channel(PldCmd::WR_DAT), rsp)) {
+    wr_dat_rsp_q_->pop_front();
+  }
+}
+
+void TmRingInf::recv_cmd(PldCmd cmd_type) {
+  uint32_t chan = tm_ring_cmd_bus_channel(cmd_type);
+  auto q = req_queue(cmd_type);
+
+  if (bus_inf_->valid(chan) ) {
     auto cmd = bus_inf_->get_pld(chan);
     cmd->mst_id = inf_id_;
-    if (!issue_cmd_to_ring(req_type, cmd)) {
-      return;
+    if (cmd_type == PldCmd::WR_DAT) {
+      pending_writes_[cmd->gid] = cmd;
+    } else {
+      q->push_back(cmd);
+      if (cmd_type == PldCmd::WR) {
+        pending_writes_[cmd->gid] = cmd;
+      }
     }
     bus_inf_->pop_pld(chan);
   }
 }
 
-void TmRingInf::recv_wr_cmd() {
-  auto req_type = aic_req_type_t::WR_REQ;
-  uint32_t chan = static_cast<uint32_t>(req_type);
+void TmRingInf::send_cmd(PldCmd cmd_type) {
+  auto q = req_queue(cmd_type);
 
-  if (bus_inf_->valid(chan)) {
-    auto cmd = bus_inf_->get_pld(chan);
-    cmd->mst_id = inf_id_;
-    if (!issue_cmd_to_ring(req_type, cmd)) {
-      return;
-    }
-    bus_inf_->pop_pld(chan);
+  auto cmd = q->front();
+  if (issue_cmd_to_ring(cmd_type, cmd)) {
+    q->pop_front();
   }
 }
 
-void TmRingInf::recv_wr_dat() {
-  auto req_type = aic_req_type_t::WR_DAT;
-  uint32_t chan = static_cast<uint32_t>(req_type);
-
-  if (bus_inf_->valid(chan)) {
-    auto cmd = bus_inf_->get_pld(chan);
-    cmd->mst_id = inf_id_;
-    if (!issue_cmd_to_ring(req_type, cmd)) {
-      return;
-    }
-    bus_inf_->pop_pld(chan);
+p_tm_com_que_t TmRingInf::req_queue(PldCmd cmd) const {
+  if (cmd == PldCmd::RD) {
+    return rd_cmds_;
   }
+  if (cmd == PldCmd::WR) {
+    return wr_cmds_;
+  }
+  return wr_data_;
 }
 
-bool TmRingInf::issue_cmd_to_ring(aic_req_type_t req_type, p_tm_pld_t pld) {
-  pld->mst_id = topology_->port_master_id(master_port_);
-  if (req_type == aic_req_type_t::RD_REQ) {
-    pld->cmd = PldCmd::RD;
-  } else if (req_type == aic_req_type_t::WR_REQ) {
-    pld->cmd = PldCmd::WR;
-  } else {
-    pld->cmd = PldCmd::WR_DAT;
-  }
-  prepare_request_metadata(pld, req_type);
-
-  auto router_fifo =
-      req_type == aic_req_type_t::WR_DAT ? router_wr_dat_q_ : router_req_q_;
-  if (router_fifo->full()) {
-    return false;
+bool TmRingInf::can_accept_rsp(p_tm_pld_t rsp) {
+  auto cmd = static_cast<PldCmd>(rsp->ring_traffic_class);
+  if (cmd == PldCmd::RD_RSP) {
+    auto it = req_map_.find(rsp->gid);
+    bool is_read = it != req_map_.end() && it->second.cmd == PldCmd::RD;
+    return is_read || !rd_rsp_qs_[rsp->ring_rsp_lane]->full();
   }
 
-  if (req_type == aic_req_type_t::WR_DAT) {
-    if (wr_grant_fifo_->empty()) {
-      return false;
-    }
-
-    auto grant = wr_grant_fifo_->front();
-    if (!flow_ctrl_->wr_grant_match(tm_pld_target_id(grant), grant->gid,
-                                    tm_pld_target_id(pld), pld,
-                                    cfg_->strict_wr_grant_order)) {
-      return false;
-    }
-  } else if (!reserve_transaction_osd(req_type)) {
-    return false;
+  if (cmd == PldCmd::WR_RSP) {
+    return !wr_data_->full() &&
+           pending_writes_.find(rsp->gid) != pending_writes_.end();
   }
 
-  router_fifo->push_back(pld);
+  auto it = req_map_.find(rsp->gid);
+  bool is_write = it != req_map_.end() && it->second.cmd == PldCmd::WR;
+  if (cmd == PldCmd::RSP) {
+    return is_write || !wr_dat_rsp_q_->full();
+  }
+
   return true;
 }
 
-void TmRingInf::pop_pending_grant() { wr_grant_fifo_->pop_front(); }
+bool TmRingInf::recv_rsp(p_tm_pld_t rsp) {
+  auto cmd = static_cast<PldCmd>(rsp->ring_traffic_class);
+  bool accepted = false;
+  if (cmd == PldCmd::WR_RSP) {
+    accepted = accept_wr_req_rsp(rsp);
+  } else if (cmd == PldCmd::RSP) {
+    accepted = accept_wr_dat_rsp(rsp);
+  } else {
+    accepted = accept_rd_rsp(rsp);
+  }
+
+  if (!accepted) {
+    return false;
+  }
+  return true;
+}
+
+bool TmRingInf::issue_cmd_to_ring(PldCmd cmd, p_tm_pld_t pld) {
+  // prepare the payload for the ring network
+  pld->mst_id = topology_->port_master_id(master_port_);
+  pld->cmd = cmd;
+  pld->ring_subnet = tm_ring_subnet_index(TmRingSubnet::REQ);
+  pld->ring_traffic_class = static_cast<uint32_t>(pld->cmd);
+  prepare_request_metadata(pld, cmd);
+
+  auto router_inf = cmd == PldCmd::WR_DAT ? router_wr_dat_inf_ : router_req_inf_;
+
+  if (cmd != PldCmd::WR_DAT && !can_reserve_master_osd(cmd)) {
+    return false;
+  }
+
+  if (router_inf->send(pld)) {
+    if (cmd == PldCmd::RD) {
+      rd_outstanding_++;
+    } else if (cmd == PldCmd::WR) {
+      wr_outstanding_++;
+    }
+    return true;
+  }
+  return false;
+}
 
 void TmRingInf::release_read_osd() {
   if (rd_outstanding_ > 0) {
@@ -208,124 +288,87 @@ void TmRingInf::release_write_osd() {
   }
 }
 
-bool TmRingInf::accept_read_response(p_tm_pld_t rsp, uint32_t lane) {
-  if (retire_api_read_response(rsp)) {
-    return true;
-  }
-  if (!bus_inf_->send(response_channel(aic_req_type_t::RD_REQ, lane), rsp)) {
-    return false;
-  }
-  return true;
-}
-
-bool TmRingInf::accept_write_request_response(p_tm_pld_t rsp) {
-  bool is_api_write = is_api_write_request(rsp);
-  if (wr_grant_fifo_->full()) {
-    return false;
-  }
-
-  if (is_api_write) {
-    if (router_wr_dat_q_->full()) {
-      return false;
-    }
-    if (!flow_ctrl_->wr_grant_match(tm_pld_target_id(rsp), rsp->gid,
-                                    tm_pld_target_id(rsp), rsp,
-                                    cfg_->strict_wr_grant_order)) {
-      return false;
-    }
-    wr_grant_fifo_->push_back(rsp);
-    rsp->cmd = PldCmd::WR_DAT;
-    rsp->type_id = static_cast<uint32_t>(aic_req_type_t::WR_DAT);
-    router_wr_dat_q_->push_back(rsp);
+bool TmRingInf::accept_rd_rsp(p_tm_pld_t rsp) {
+  if (retire_read_response(rsp)) {
     return true;
   }
 
-  if (!is_api_write &&
-      !bus_inf_->send(response_channel(aic_req_type_t::WR_REQ), rsp)) {
-    return false;
-  }
-
-  wr_grant_fifo_->push_back(rsp);
-  retire_tracked_request(rsp);
-  recv_wr_dat();
+  auto q = rd_rsp_qs_[rsp->ring_rsp_lane];
+  q->push_back(rsp);
   return true;
 }
 
-bool TmRingInf::accept_write_data_response(p_tm_pld_t rsp) {
-  if (retire_api_write_response(rsp)) {
+bool TmRingInf::accept_wr_req_rsp(p_tm_pld_t rsp) {
+  auto wr_dat = make_write_data(rsp);
+
+  if (tm_pld_target_id(rsp) != tm_pld_target_id(wr_dat)) {
+    return false;
+  }
+  wr_data_->push_back(wr_dat);
+  return true;
+}
+
+bool TmRingInf::accept_wr_dat_rsp(p_tm_pld_t rsp) {
+  // if the write response is for a write request, retire it and do not enqueue
+  if (retire_write_response(rsp)) {
     return true;
   }
-  if (!bus_inf_->send(response_channel(aic_req_type_t::WR_DAT), rsp)) {
-    return false;
-  }
-  retire_tracked_request(rsp);
+  // otherwise, enqueue the write response for the master to read
+  pending_writes_.erase(rsp->gid);
+  wr_dat_rsp_q_->push_back(rsp);
   return true;
 }
 
-uint32_t TmRingInf::response_channel(aic_req_type_t req_type,
-                                       uint32_t lane) const {
-  if (req_type == aic_req_type_t::RD_REQ) {
-    return static_cast<uint32_t>(aic_req_type_t::RD_REQ) + lane;
+uint32_t TmRingInf::response_channel(PldCmd cmd, uint32_t lane) const {
+  if (cmd == PldCmd::RD) {
+    return tm_ring_rd_rsp_bus_channel(lane);
   }
-  return static_cast<uint32_t>(req_type);
+  return tm_ring_cmd_bus_channel(cmd);
 }
 
-void TmRingInf::prepare_request_metadata(p_tm_pld_t pld,
-                                           aic_req_type_t req_type) {
+void TmRingInf::prepare_request_metadata(p_tm_pld_t pld, PldCmd cmd) {
   auto target_id = topology_->decode_target(pld->addr);
-  tm_pld_set_ring_route(pld, static_cast<uint32_t>(req_type), target_id,
+  tm_pld_set_ring_route(pld, static_cast<uint32_t>(cmd), target_id,
                         topology_->master_node(master_port_),
-                        topology_->target_node(target_id), time());
+                        topology_->target_node(target_id));
 }
 
-bool TmRingInf::can_reserve_master_osd(aic_req_type_t req_type) const {
-  if (req_type == aic_req_type_t::RD_REQ) {
+bool TmRingInf::can_reserve_master_osd(PldCmd cmd) const {
+  if (cmd == PldCmd::RD) {
     return rd_outstanding_ < cfg_->master_rd_osd;
   }
-  if (req_type == aic_req_type_t::WR_REQ) {
+  if (cmd == PldCmd::WR) {
     return wr_outstanding_ < cfg_->master_wr_osd;
   }
   return true;
 }
 
-bool TmRingInf::reserve_transaction_osd(aic_req_type_t req_type) {
-  if (!can_reserve_master_osd(req_type)) {
-    return false;
-  }
-  if (global_osd_reserve_ && !global_osd_reserve_(req_type)) {
-    return false;
-  }
-  if (req_type == aic_req_type_t::RD_REQ) {
-    rd_outstanding_++;
-  } else if (req_type == aic_req_type_t::WR_REQ) {
-    wr_outstanding_++;
-  }
-  return true;
-}
 
-void TmRingInf::track_api_request(uint32_t req_id, p_tm_pld_t req,
-                                    aic_req_type_t req_type) {
-  bus_req_list_.push_back(std::make_pair(req_id, req));
 
+void TmRingInf::track_request(uint32_t req_id, p_tm_pld_t req, PldCmd cmd) {
   TmRingInfApiReq state;
-  state.req_type = req_type;
-  api_req_map_[req_id] = state;
-}
-
-void TmRingInf::retire_tracked_request(p_tm_pld_t rsp) {
-  auto iter = find_if(bus_req_list_.begin(), bus_req_list_.end(),
-                      [rsp](const pair<uint32_t, p_tm_pld_t>& req) {
-                        return req.first == rsp->gid || req.second == rsp;
-                      });
-  if (iter != bus_req_list_.end()) {
-    bus_req_list_.erase(iter);
+  state.cmd = cmd;
+  state.req = req;
+  req_map_[req_id] = state;
+  if (cmd == PldCmd::WR) {
+    pending_writes_[req->gid] = req;
   }
 }
 
-bool TmRingInf::retire_api_read_response(p_tm_pld_t rsp) {
-  auto it = api_req_map_.find(rsp->gid);
-  if (it == api_req_map_.end() ||
-      it->second.req_type != aic_req_type_t::RD_REQ) {
+p_tm_pld_t TmRingInf::make_write_data(p_tm_pld_t grant) {
+  auto it = pending_writes_.find(grant->gid);
+  if (it == pending_writes_.end() || it->second == nullptr) {
+    std::cerr << this->name() << ": missing original write payload for gid "
+              << grant->gid << std::endl;
+    assert(false && "TmRingInf missing write data");
+    return nullptr;
+  }
+  return it->second;
+}
+
+bool TmRingInf::retire_read_response(p_tm_pld_t rsp) {
+  auto it = req_map_.find(rsp->gid);
+  if (it == req_map_.end() || it->second.cmd != PldCmd::RD) {
     return false;
   }
 
@@ -334,26 +377,17 @@ bool TmRingInf::retire_api_read_response(p_tm_pld_t rsp) {
   }
   it->second.rsp_seen++;
   if (it->second.rsp_seen >= it->second.rsp_expected) {
-    api_req_map_.erase(it);
-    retire_tracked_request(rsp);
+    req_map_.erase(it);
   }
   return true;
 }
 
-bool TmRingInf::retire_api_write_response(p_tm_pld_t rsp) {
-  auto it = api_req_map_.find(rsp->gid);
-  if (it == api_req_map_.end() ||
-      it->second.req_type != aic_req_type_t::WR_REQ) {
+bool TmRingInf::retire_write_response(p_tm_pld_t rsp) {
+  auto it = req_map_.find(rsp->gid);
+  if (it == req_map_.end() || it->second.cmd != PldCmd::WR) {
     return false;
   }
-
-  api_req_map_.erase(it);
-  retire_tracked_request(rsp);
+  req_map_.erase(it);
+  pending_writes_.erase(rsp->gid);
   return true;
-}
-
-bool TmRingInf::is_api_write_request(p_tm_pld_t rsp) const {
-  auto it = api_req_map_.find(rsp->gid);
-  return it != api_req_map_.end() &&
-         it->second.req_type == aic_req_type_t::WR_REQ;
 }

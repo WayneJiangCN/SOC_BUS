@@ -1,7 +1,6 @@
 #include "tm_ring_target_port.h"
 
 #include "tm_bus_flow_ctrl.h"
-#include "tm_ring_router.h"
 #include "tm_pld.h"
 
 using namespace tm_engine;
@@ -35,7 +34,7 @@ TmRingTargetPort::config(const std::string& name, p_tm_clk_t clk,
     rd_rsp_port_num_ = rd_rsp_port_num;
 
     uint32_t chan_num =
-        static_cast<uint32_t>(aic_req_type_t::RD_REQ) + rd_rsp_port_num_;
+        tm_ring_rd_rsp_bus_channel(0) + rd_rsp_port_num_;
     inf_ = tm_make_com_inf(clk_, name_ + "_inf", inf_depth);
     inf_->set_chan_num(chan_num);
     tm_sensitive(TM_MAKE_CPROC(&TmRingTargetPort::recv_rd_cmd_rsp), inf_->vld);
@@ -80,15 +79,15 @@ TmRingTargetPort::reset()
 void
 TmRingTargetPort::attach(uint32_t target_id,
                          std::shared_ptr<TmBusFlowCtrl> flow_ctrl,
-                         const std::vector<p_tm_com_que_t>& rd_rsp_router_qs,
-                         p_tm_com_que_t wr_req_rsp_router_q,
-                         p_tm_com_que_t wr_dat_rsp_router_q)
+                         const std::vector<p_tm_com_inf_t>& rd_rsp_router_infs,
+                         p_tm_com_inf_t wr_req_rsp_router_inf,
+                         p_tm_com_inf_t wr_dat_rsp_router_inf)
 {
     target_id_ = target_id;
     flow_ctrl_ = flow_ctrl;
-    rd_rsp_router_qs_ = rd_rsp_router_qs;
-    wr_req_rsp_router_q_ = wr_req_rsp_router_q;
-    wr_dat_rsp_router_q_ = wr_dat_rsp_router_q;
+    rd_rsp_router_infs_ = rd_rsp_router_infs;
+    wr_req_rsp_router_inf_ = wr_req_rsp_router_inf;
+    wr_dat_rsp_router_inf_ = wr_dat_rsp_router_inf;
 }
 
 bool
@@ -115,45 +114,45 @@ TmRingTargetPort::attach(p_tm_mem_t mem)
 }
 
 p_tm_com_que_t
-TmRingTargetPort::req_q(aic_req_type_t req_type) const
+TmRingTargetPort::req_q(PldCmd cmd) const
 {
-    if (req_type == aic_req_type_t::RD_REQ) {
+    if (cmd == PldCmd::RD) {
         return rd_req_q_;
     }
-    if (req_type == aic_req_type_t::WR_REQ) {
+    if (cmd == PldCmd::WR) {
         return wr_req_q_;
     }
     return wr_dat_q_;
 }
 
 bool
-TmRingTargetPort::can_accept_request(aic_req_type_t req_type) const
+TmRingTargetPort::can_accept_request(PldCmd cmd) const
 {
-    return !req_q(req_type)->full();
+    return !req_q(cmd)->full();
 }
 
 void
-TmRingTargetPort::accept_request(aic_req_type_t req_type, p_tm_pld_t pld)
+TmRingTargetPort::accept_request(PldCmd cmd, p_tm_pld_t pld)
 {
-    req_q(req_type)->push_back(pld);
+    req_q(cmd)->push_back(pld);
 }
 
 bool
-TmRingTargetPort::has_request(aic_req_type_t req_type) const
+TmRingTargetPort::has_request(PldCmd cmd) const
 {
-    return !req_q(req_type)->empty();
+    return !req_q(cmd)->empty();
 }
 
 p_tm_pld_t
-TmRingTargetPort::front_request(aic_req_type_t req_type) const
+TmRingTargetPort::front_request(PldCmd cmd) const
 {
-    return req_q(req_type)->front();
+    return req_q(cmd)->front();
 }
 
 void
-TmRingTargetPort::pop_request(aic_req_type_t req_type)
+TmRingTargetPort::pop_request(PldCmd cmd)
 {
-    req_q(req_type)->pop_front();
+    req_q(cmd)->pop_front();
 }
 
 void
@@ -167,42 +166,44 @@ TmRingTargetPort::send_pending_requests()
 void
 TmRingTargetPort::send_rd_cmd()
 {
-    send_cmd(aic_req_type_t::RD_REQ);
+    send_cmd(PldCmd::RD);
 }
 
 void
 TmRingTargetPort::send_wr_cmd()
 {
-    send_cmd(aic_req_type_t::WR_REQ);
+    send_cmd(PldCmd::WR);
 }
 
 void
 TmRingTargetPort::send_wr_dat()
 {
-    send_cmd(aic_req_type_t::WR_DAT);
+    send_cmd(PldCmd::WR_DAT);
 }
 
 void
-TmRingTargetPort::send_cmd(aic_req_type_t req_type)
+TmRingTargetPort::send_cmd(PldCmd cmd)
 {
-    auto q = req_q(req_type);
+    auto q = req_q(cmd);
     if (q->empty()) {
         return;
     }
 
     auto pld = q->front();
-    if (!flow_ctrl_->can_send_to_target(target_id_, req_type, pld)) {
+    auto legacy_req = tm_ring_cmd_to_req(cmd);
+    flow_ctrl_->update_tokens(time());
+    if (!flow_ctrl_->can_send_to_target(target_id_, legacy_req, pld)) {
         return;
     }
 
-    auto& next_issue = next_req_issue_time(req_type);
+    auto& next_issue = next_req_issue_time(cmd);
     if (time() < next_issue) {
         return;
     }
 
-    if (inf_->send(static_cast<uint32_t>(req_type), pld)) {
+    if (inf_->send(tm_ring_cmd_bus_channel(cmd), pld)) {
         q->pop_front();
-        flow_ctrl_->consume_target_credit(target_id_, req_type, pld);
+        flow_ctrl_->consume_target_credit(target_id_, legacy_req, pld);
         next_issue =
             time() + flow_ctrl_->calc_issue_busy_cycles(target_id_, pld);
     }
@@ -212,142 +213,139 @@ void
 TmRingTargetPort::recv_rd_cmd_rsp()
 {
     for (uint32_t lane = 0; lane < rd_rsp_port_num_; ++lane) {
-        if (!has_response(aic_req_type_t::RD_REQ, lane)) {
+        if (!has_response(PldCmd::RD, lane)) {
             continue;
         }
 
-        auto router_q = rsp_router_q(aic_req_type_t::RD_REQ, lane);
-        if (router_q->full()) {
-            continue;
-        }
-
-        auto& next_issue = next_rsp_issue_time(aic_req_type_t::RD_REQ, lane);
+        auto& next_issue = next_rsp_issue_time(PldCmd::RD, lane);
         if (time() < next_issue) {
             continue;
         }
 
-        auto rsp = front_response(aic_req_type_t::RD_REQ, lane);
+        auto rsp = front_response(PldCmd::RD, lane);
         rsp->cmd = PldCmd::RD_RSP;
-        rsp->ring_traffic_class = TmRingRouter::traffic_class(PldCmd::RD_RSP);
+        rsp->ring_subnet = tm_ring_subnet_index(TmRingSubnet::RSP);
+        rsp->ring_traffic_class = static_cast<uint32_t>(PldCmd::RD_RSP);
         rsp->ring_rsp_lane = lane;
-        router_q->push_back(rsp);
-        pop_response(aic_req_type_t::RD_REQ, lane);
+        auto router_inf = rsp_router_inf(PldCmd::RD, lane);
+        if (!router_inf->send(rsp)) {
+            continue;
+        }
+        pop_response(PldCmd::RD, lane);
 
         next_issue =
             time() + flow_ctrl_->calc_rsp_busy_cycles(target_id_, rsp,
-                                                      aic_req_type_t::RD_REQ);
+                                                      tm_ring_cmd_to_req(PldCmd::RD));
     }
 }
 
 void
 TmRingTargetPort::recv_wr_cmd_rsp()
 {
-    if (!has_response(aic_req_type_t::WR_REQ)) {
+    if (!has_response(PldCmd::WR)) {
         return;
     }
 
-    auto router_q = rsp_router_q(aic_req_type_t::WR_REQ);
-    if (router_q->full()) {
-        return;
-    }
-
-    auto& next_issue = next_rsp_issue_time(aic_req_type_t::WR_REQ);
+    auto& next_issue = next_rsp_issue_time(PldCmd::WR);
     if (time() < next_issue) {
         return;
     }
 
-    auto rsp = front_response(aic_req_type_t::WR_REQ);
+    auto rsp = front_response(PldCmd::WR);
     rsp->cmd = PldCmd::WR_RSP;
-    rsp->ring_traffic_class = TmRingRouter::traffic_class(PldCmd::WR_RSP);
-    router_q->push_back(rsp);
-    pop_response(aic_req_type_t::WR_REQ);
+    rsp->ring_subnet = tm_ring_subnet_index(TmRingSubnet::RSP);
+    rsp->ring_traffic_class = static_cast<uint32_t>(PldCmd::WR_RSP);
+    auto router_inf = rsp_router_inf(PldCmd::WR);
+    if (!router_inf->send(rsp)) {
+        return;
+    }
+    pop_response(PldCmd::WR);
 
     next_issue =
         time() + flow_ctrl_->calc_rsp_busy_cycles(target_id_, rsp,
-                                                  aic_req_type_t::WR_REQ);
+                                                  tm_ring_cmd_to_req(PldCmd::WR));
 }
 
 void
 TmRingTargetPort::recv_wr_dat_rsp()
 {
-    if (!has_response(aic_req_type_t::WR_DAT)) {
+    if (!has_response(PldCmd::WR_DAT)) {
         return;
     }
 
-    auto router_q = rsp_router_q(aic_req_type_t::WR_DAT);
-    if (router_q->full()) {
-        return;
-    }
-
-    auto& next_issue = next_rsp_issue_time(aic_req_type_t::WR_DAT);
+    auto& next_issue = next_rsp_issue_time(PldCmd::WR_DAT);
     if (time() < next_issue) {
         return;
     }
 
-    auto rsp = front_response(aic_req_type_t::WR_DAT);
+    auto rsp = front_response(PldCmd::WR_DAT);
     rsp->cmd = PldCmd::RSP;
-    rsp->ring_traffic_class = TmRingRouter::traffic_class(PldCmd::RSP);
-    router_q->push_back(rsp);
-    pop_response(aic_req_type_t::WR_DAT);
+    rsp->ring_subnet = tm_ring_subnet_index(TmRingSubnet::RSP);
+    rsp->ring_traffic_class = static_cast<uint32_t>(PldCmd::RSP);
+    auto router_inf = rsp_router_inf(PldCmd::WR_DAT);
+    if (!router_inf->send(rsp)) {
+        return;
+    }
+    pop_response(PldCmd::WR_DAT);
 
     next_issue =
         time() + flow_ctrl_->calc_rsp_busy_cycles(target_id_, rsp,
-                                                  aic_req_type_t::WR_DAT);
+                                                  tm_ring_cmd_to_req(PldCmd::WR_DAT));
 }
 
 bool
-TmRingTargetPort::has_response(aic_req_type_t rsp_type, uint32_t lane) const
+TmRingTargetPort::has_response(PldCmd cmd, uint32_t lane) const
 {
-    return inf_->valid(response_channel(rsp_type, lane));
+    return inf_->valid(response_channel(cmd, lane));
 }
 
 p_tm_pld_t
-TmRingTargetPort::front_response(aic_req_type_t rsp_type, uint32_t lane) const
+TmRingTargetPort::front_response(PldCmd cmd, uint32_t lane) const
 {
-    return inf_->get_pld(response_channel(rsp_type, lane));
+    return inf_->get_pld(response_channel(cmd, lane));
 }
 
 void
-TmRingTargetPort::pop_response(aic_req_type_t rsp_type, uint32_t lane)
+TmRingTargetPort::pop_response(PldCmd cmd, uint32_t lane)
 {
-    inf_->pop_pld(response_channel(rsp_type, lane));
+    inf_->pop_pld(response_channel(cmd, lane));
 }
 
-p_tm_com_que_t
-TmRingTargetPort::rsp_router_q(aic_req_type_t rsp_type, uint32_t lane) const
+p_tm_com_inf_t
+TmRingTargetPort::rsp_router_inf(PldCmd cmd, uint32_t lane) const
 {
-    if (rsp_type == aic_req_type_t::RD_REQ) {
-        return rd_rsp_router_qs_[lane];
+    if (cmd == PldCmd::RD) {
+        return rd_rsp_router_infs_[lane];
     }
-    if (rsp_type == aic_req_type_t::WR_REQ) {
-        return wr_req_rsp_router_q_;
+    if (cmd == PldCmd::WR) {
+        return wr_req_rsp_router_inf_;
     }
-    return wr_dat_rsp_router_q_;
+    return wr_dat_rsp_router_inf_;
 }
 
 tm_time_t&
-TmRingTargetPort::next_req_issue_time(aic_req_type_t req_type)
+TmRingTargetPort::next_req_issue_time(PldCmd cmd)
 {
-    return next_req_issue_time_[static_cast<uint32_t>(req_type)];
+    return next_req_issue_time_[tm_ring_cmd_bus_channel(cmd)];
 }
 
 tm_time_t&
-TmRingTargetPort::next_rsp_issue_time(aic_req_type_t rsp_type, uint32_t lane)
+TmRingTargetPort::next_rsp_issue_time(PldCmd cmd, uint32_t lane)
 {
-    if (rsp_type == aic_req_type_t::RD_REQ) {
+    if (cmd == PldCmd::RD) {
         return next_rd_rsp_issue_time_[lane];
     }
-    if (rsp_type == aic_req_type_t::WR_REQ) {
+    if (cmd == PldCmd::WR) {
         return next_wr_req_rsp_issue_time_;
     }
     return next_wr_dat_rsp_issue_time_;
 }
 
 uint32_t
-TmRingTargetPort::response_channel(aic_req_type_t rsp_type, uint32_t lane) const
+TmRingTargetPort::response_channel(PldCmd cmd, uint32_t lane) const
 {
-    if (rsp_type == aic_req_type_t::RD_REQ) {
-        return static_cast<uint32_t>(aic_req_type_t::RD_REQ) + lane;
+    if (cmd == PldCmd::RD) {
+        return tm_ring_rd_rsp_bus_channel(lane);
     }
-    return static_cast<uint32_t>(rsp_type);
+    return tm_ring_cmd_bus_channel(cmd);
 }
