@@ -64,6 +64,7 @@ class TmRingLink : public tm_engine::TmModule {
   std::vector<p_tm_com_que_t> inflight_packets_;
   std::vector<LinkSubnetStats> stats_;
   p_tm_com_inf_t src_inf_ = nullptr;
+  p_tm_com_inf_t dst_out_inf_ = nullptr;
   p_tm_com_inf_t dst_inf_ = nullptr;
   p_logger_t log_ = nullptr;
 };

@@ -52,6 +52,13 @@ void TmRingLink::config(const std::string& name, p_tm_clk_t clk,
   src_inf_->set_chan_num(tm_ring_packet_channel_count(cfg_->rd_rsp_port_num));
   tm_sensitive(TM_MAKE_CPROC(&TmRingLink::recv_packets), src_inf_->vld);
 
+  dst_out_inf_ = tm_make_com_inf(
+      clk_, name_ + "_dst_out_inf",
+      std::max<uint32_t>(
+          1, std::max(cfg_->ring_req_fifo_depth, cfg_->ring_rsp_fifo_depth)));
+  dst_out_inf_->set_chan_num(
+      tm_ring_packet_channel_count(cfg_->rd_rsp_port_num));
+
   auto drain_proc = TM_MAKE_CPROC(&TmRingLink::drain_ready_packets);
   inflight_packets_.push_back(tm_make_que<p_tm_pld_t>(
       clk_, name_ + "_req_ready_packets",
@@ -68,6 +75,7 @@ void TmRingLink::config(const std::string& name, p_tm_clk_t clk,
 
 void TmRingLink::reset() {
   src_inf_->reset();
+  dst_out_inf_->reset();
   std::fill(next_send_time_.begin(), next_send_time_.end(), 0);
   std::fill(inflight_count_.begin(), inflight_count_.end(), 0);
   std::fill(stats_.begin(), stats_.end(), LinkSubnetStats());
@@ -77,7 +85,7 @@ void TmRingLink::reset() {
 }
 
 bool TmRingLink::idle() const {
-  bool ret = src_inf_->idle();
+  bool ret = src_inf_->idle() && dst_out_inf_->idle();
   for (auto& q : inflight_packets_) {
     ret = ret && q->empty();
   }
@@ -138,6 +146,7 @@ const TmRingLink::LinkSubnetStats& TmRingLink::subnet_stats(
 
 void TmRingLink::attach(p_tm_com_inf_t dst_inf) {
   dst_inf_ = dst_inf;
+  dst_out_inf_->connect(dst_inf_);
   PEM_LOG_INFO(log_, "[{0:d}] attach_dst dst_router:{1:d} dst_dir:{2:d}",
                time(), dst_router_, tm_ring_port_index(dst_dir_));
 }
@@ -189,7 +198,7 @@ void TmRingLink::drain_ready_packets() {
         assert(false && "TmRingLink missing destination inf");
         break;
       }
-      if (!dst_inf_->send(dst_channel(pld), pld)) {
+      if (!dst_out_inf_->send(dst_channel(pld), pld)) {
         stats_[idx].downstream_inf_full_stall++;
         PEM_LOG_INFO(log_, "[{0:d}] dst_full subnet:{1:d} cmd:{2:d} gid:{3:d}",
                      time(), idx, pld->ring_traffic_class, pld->gid);
