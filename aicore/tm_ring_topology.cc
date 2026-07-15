@@ -4,7 +4,6 @@ void
 TmRingTopology::config(p_tm_ring_cfg_t cfg)
 {
     cfg_ = cfg;
-    interleave_rules_.clear();
 
     uint32_t endpoint_count = cfg_->num_masters + cfg_->num_targets;
     router_count_ = endpoint_count == 0 ? 1 : endpoint_count;
@@ -32,11 +31,6 @@ TmRingTopology::config(p_tm_ring_cfg_t cfg)
         master_nodes_[master++] = node;
     }
 
-    interleave_rules_.resize(cfg_->num_targets);
-    for (uint32_t i = 0; i < cfg_->num_targets; ++i) {
-        interleave_rules_[i] =
-            tm_make_bus_interleave(cfg_->targets[i]->interleave_type);
-    }
 }
 
 void
@@ -89,16 +83,62 @@ TmRingTopology::decode_target(uint64_t addr) const
             has_default = true;
             continue;
         }
-        if (!target_cfg->contains(addr)) {
-            continue;
-        }
-
-        if (interleave_rules_[i]->matches(addr, target_cfg)) {
+        if (target_matches(addr, target_cfg)) {
             return i;
         }
     }
 
     return has_default ? default_target : 0;
+}
+
+bool
+TmRingTopology::target_matches(uint64_t addr,
+                               p_tm_ring_target_cfg_t target_cfg) const
+{
+    if (!target_cfg->contains(addr)) {
+        return false;
+    }
+    if (!target_cfg->interleave_enabled()) {
+        return true;
+    }
+    return calc_interleave_slice(addr, target_cfg) ==
+           target_cfg->interleave_idx;
+}
+
+uint64_t
+TmRingTopology::calc_interleave_stripe(
+    uint64_t addr, p_tm_ring_target_cfg_t target_cfg) const
+{
+    return (addr - target_cfg->addr_begin) / target_cfg->interleave_size;
+}
+
+uint32_t
+TmRingTopology::calc_linear_slice(uint64_t addr,
+                                  p_tm_ring_target_cfg_t target_cfg) const
+{
+    uint64_t stripe_id = calc_interleave_stripe(addr, target_cfg);
+    return static_cast<uint32_t>(stripe_id % target_cfg->interleave_num);
+}
+
+uint32_t
+TmRingTopology::calc_xor_hash_slice(uint64_t addr,
+                                    p_tm_ring_target_cfg_t target_cfg) const
+{
+    uint64_t stripe_id = calc_interleave_stripe(addr, target_cfg);
+    uint64_t hashed = stripe_id ^
+                      (stripe_id >> target_cfg->interleave_hash_shift) ^
+                      target_cfg->interleave_hash_seed;
+    return static_cast<uint32_t>(hashed % target_cfg->interleave_num);
+}
+
+uint32_t
+TmRingTopology::calc_interleave_slice(
+    uint64_t addr, p_tm_ring_target_cfg_t target_cfg) const
+{
+    if (tm_ring_is_xor_hash_interleave(target_cfg->interleave_type)) {
+        return calc_xor_hash_slice(addr, target_cfg);
+    }
+    return calc_linear_slice(addr, target_cfg);
 }
 
 uint32_t

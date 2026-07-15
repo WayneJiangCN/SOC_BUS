@@ -1,40 +1,64 @@
 # AI Core Ring-Lite 文档索引
 
-这套代码是一个面向多 AI Core SoC 的轻量互连模型。它保留了多跳、仲裁、链路延迟、目标端瓶颈和写事务两阶段语义，但不下沉到 flit、VC、credit 级实现。
+这套代码是一个面向多 AI Core SoC 的轻量 Ring 互连模型。当前主线是 **message-level bidirectional Ring**，不是 flit/VC 级 NoC，也不是单层共享 bus。
 
-主路径：
+历史上部分文件曾使用 `Mesh` 命名，但当前 `tm_ring_*` 已经是主线实现。
+
+## 主路径
 
 ```text
-Core/上游
+BIU / API
   -> TmRingInf
   -> TmRingRouter
   -> TmRingLink
   -> TmRingRouter
   -> TmRingTargetPort
-  -> Target/TmMem
-  -> 响应按原路径返回
+  -> TmMem / target
+  -> response subnet 按 Ring 返回 Master
 ```
 
-推荐阅读顺序：
+## 推荐阅读顺序
 
 1. [code_organization.md](./code_organization.md)
-   先看代码分层和主入口。
-2. [ring_fabric_design.md](./ring_fabric_design.md)
-   再看 `TmRingFabric` 怎么调度整张网络。
-3. [port_based_router_design.md](./port_based_router_design.md)
-   最后看端口化 router、link 和仲裁语义。
-4. [arbitration.md](./arbitration.md)
-   如果你主要关心竞争和带宽分配，直接看这一页。
-5. [design_tradeoffs.md](./design_tradeoffs.md)
-   如果你想知道哪些地方是抽象、哪些地方更接近硬件，再看这一页。
+   先看代码分层、主要文件和阅读入口。
+2. [ring_module_resources.md](./ring_module_resources.md)
+   重点看每个模块持有哪些资源，以及模块之间如何连接。
+3. [ring_fabric_design.md](./ring_fabric_design.md)
+   再看 `TmRingFabric` 如何创建和连接整张网络。
+4. [port_based_router_design.md](./port_based_router_design.md)
+   继续看 Router/Link 的端口化设计。
+5. [arbitration.md](./arbitration.md)
+   如果关心多输入竞争同一输出口，重点看仲裁。
 6. [performance_and_alignment.md](./performance_and_alignment.md)
-   如果你想知道这套模型能看出什么性能现象，以及和真实硬件大致对齐到哪一层，直接看这一页。
+   如果关心性能趋势、瓶颈和真实硬件对齐，重点看这页。
 
-术语约定：
+## 术语
 
 - `NIU`：`TmRingInf`，master 侧接入点。
-- `Router`：`TmRingRouter`，端口化粗粒度 router。
-- `Link`：`TmRingLink`，`src_port -> dst_port` 的有向链路。
-- `TargetPort`：`TmRingTargetPort`，target 侧接入点。
-- `Fabric`：`TmRingFabric`，统一调度器和事务上下文持有者。
-- `txn_ctx_`：共享事务表，用来跟踪请求从发起到完成的生命周期。
+- `Router`：`TmRingRouter`，每个 ring stop 上的轻量转发节点。
+- `Link`：`TmRingLink`，一个方向上的有向链路。
+- `TargetPort`：`TmRingTargetPort`，target/memory 侧接入点。
+- `Fabric`：`TmRingFabric`，负责创建、持有和连接整张 Ring。
+- `REQ subnet`：承载 `RD`、`WR`、`WR_DAT`。
+- `RSP subnet`：承载 `RD_RSP`、`WR_RSP`、`RSP`。
+
+## 当前模型边界
+
+支持：
+
+- 双向 Ring，`EAST` 顺时针，`WEST` 逆时针。
+- 最短路径路由，等距时走 `EAST`。
+- 独立 request/response subnet。
+- Router 输入端口短缓存、Link 延迟和序列化。
+- Target credit/token/outstanding。
+- Master 侧 read/write outstanding。
+- API 路径 `send_rd_req()` / `send_wr_req()` / `completed()`。
+- BIU 通过 `p_tm_com_inf_t` 接入 Ring。
+- 每个主要模块独立 log 文件，便于 debug。
+
+不支持：
+
+- flit、VC、VC allocator、switch allocator。
+- RTL AXI 五通道逐拍行为。
+- cache coherence / snoop。
+- 用显式 retry event 每周期扫描全网。

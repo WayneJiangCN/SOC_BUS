@@ -44,6 +44,11 @@ inline constexpr bool tm_ring_is_req_cmd(PldCmd cmd) {
   return cmd == PldCmd::RD || cmd == PldCmd::WR || cmd == PldCmd::WR_DAT;
 }
 
+inline constexpr bool tm_ring_is_xor_hash_interleave(
+    tm_bus_interleave_type_t type) {
+  return type == tm_bus_interleave_type_t::XOR_HASH;
+}
+
 inline constexpr aic_req_type_t tm_ring_cmd_to_req(PldCmd cmd) {
   return cmd == PldCmd::RD   ? aic_req_type_t::RD_REQ
          : cmd == PldCmd::WR ? aic_req_type_t::WR_REQ

@@ -6,7 +6,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "tm_bus_interleave.h"
 #include "tm_ring_types.h"
 
 /*
@@ -41,12 +40,21 @@ class TmRingTopology
     uint32_t compute_next_node(uint32_t cur_node, uint32_t dst_node) const;
 
   private:
+    bool target_matches(uint64_t addr, p_tm_ring_target_cfg_t target_cfg) const;
+    uint64_t calc_interleave_stripe(uint64_t addr,
+                                    p_tm_ring_target_cfg_t target_cfg) const;
+    uint32_t calc_linear_slice(uint64_t addr,
+                               p_tm_ring_target_cfg_t target_cfg) const;
+    uint32_t calc_xor_hash_slice(uint64_t addr,
+                                 p_tm_ring_target_cfg_t target_cfg) const;
+    uint32_t calc_interleave_slice(uint64_t addr,
+                                   p_tm_ring_target_cfg_t target_cfg) const;
+
     p_tm_ring_cfg_t cfg_ = nullptr;
     std::unordered_map<uint32_t, uint32_t> master_id_to_port_;
     std::vector<uint32_t> port_to_master_id_;
     std::vector<uint32_t> master_nodes_;
     std::vector<uint32_t> target_nodes_;
-    std::vector<p_tm_bus_interleave_t> interleave_rules_;
     uint32_t router_count_ = 1;
 };
 

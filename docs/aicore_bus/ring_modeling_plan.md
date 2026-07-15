@@ -1,209 +1,163 @@
 # Ring 建模方案
 
-## 1. 建模定位
+当前 `tm_ring_*` 实现是一版 **message-level bidirectional Ring NoC-lite**。它借鉴 gem5 SimpleNetwork 的 message buffer、逐跳 switch/link、反压和 link throttle 思路，但不下沉到 Garnet/BookSim 那种 flit、VC、credit allocator 级别。
 
-当前 `tm_ring_*` 的目标不是做一个完整硬件 NoC，而是做一版：
+## 1. 建模目标
 
-**transaction/message-level ring NoC-lite**
+目标是服务 AI Core SoC 级 ESL/CA 互连建模：
 
-它更接近：
+- 多 master 并发访问。
+- 多 target / memory partition。
+- 地址交织和热点访问。
+- Ring hop latency。
+- Link 序列化和 in-flight 限制。
+- Target credit/token/outstanding。
+- Master outstanding。
+- 请求/响应分离。
+- 关键路径 debug log。
 
-- gem5 `SimpleNetwork` 的 message-buffer endpoint 思路
-- AI Core 自己的事务协议语义
+非目标：
 
-而不是：
+- flit 拆分。
+- virtual channel。
+- VC allocator / switch allocator。
+- cache coherence / snoop。
+- RTL AXI 五通道逐拍行为。
 
-- gem5 `Garnet` 的 flit/VC/credit 级网络
+## 2. 当前拓扑
 
-## 2. 为什么适合当前目标
-
-它适合当前项目，是因为你要解决的是：
-
-- 多 core 并发
-- 多 target / 多 channel
-- interleave
-- target 侧 OSD / outstanding
-- 瓶颈趋势
-
-而不是：
-
-- router 微结构研究
-- VC 数量优化
-- credit deadlock 分析
-
-## 3. 当前结构
+Ring 是一维双向结构：
 
 ```text
-Core / BIU
+       EAST / clockwise
+  R0 ---------------- R1
+  |                  |
+  |                  |
+  R3 ---------------- R2
+       WEST / counter-clockwise
+```
+
+每个 router 是一个 ring stop，包含三个逻辑方向：
+
+- `LOCAL`：本地 master/target 注入和弹出。
+- `EAST`：顺时针方向。
+- `WEST`：逆时针方向。
+
+路由规则：
+
+- 当前 node 等于目的 node：走 `LOCAL`。
+- 顺时针更近：走 `EAST`。
+- 逆时针更近：走 `WEST`。
+- 等距：走 `EAST`。
+
+## 3. 数据通路
+
+### 3.1 请求路径
+
+```text
+BIU/API
   -> TmRingInf
-  -> TmRingRouter
+  -> source TmRingRouter LOCAL
   -> TmRingLink
-  -> TmRingRouter
+  -> one or more intermediate TmRingRouter
+  -> target TmRingRouter LOCAL
   -> TmRingTargetPort
   -> TmMem / target
 ```
 
-### 3.1 `TmRingInf`
+`RD`、`WR`、`WR_DAT` 都走 `REQ subnet`。其中 `WR_DAT` 必须在收到 `WR_RSP` grant 后才能进入 `wr_data_` 队列再注入 Ring。
 
-角色：
-
-- master-side NIU
-- message-buffer endpoint
-
-负责：
-
-- 上游接口
-- 本地 request pending
-- 本地 grant
-- completion 跟踪
-- response 回送
-
-### 3.2 `TmRingRouter`
-
-角色：
-
-- 粗粒度 transaction/message 级 router
-
-负责：
-
-- 本地 request/data/response queues
-- 同一输出口上的本地 RR 选择
-
-不负责：
-
-- flit
-- VC
-- credit
-- crossbar 微结构
-
-### 3.3 `TmRingLink`
-
-角色：
-
-- 轻量有向 link
-
-负责：
-
-- hop latency
-- 共享输出节流
-
-当前更像 `SimpleNetwork::Throttle` 的粗粒度链路，而不是 `Garnet CreditLink`。
-
-### 3.4 `TmRingTargetPort`
-
-角色：
-
-- target-side endpoint / ingress port
-
-负责：
-
-- target-local queues
-- 下游 target/TmMem 接口
-- target response 回注入
-
-### 3.5 `TmRingFabric`
-
-角色：
-
-- 共享容器和统一调度骨架
-
-负责：
-
-- 拥有 NIU / Router / Link / TargetPort
-- 维护 `txn_ctx_`
-- 驱动主 tick
-- 组织 request / response 主路径
-- 调用 target-level flow control
-
-## 4. 数据路径
-
-### 4.1 请求路径
+### 3.2 响应路径
 
 ```text
-upstream / API
-  -> TmRingInf pending
-  -> request/data subnet
-  -> Router
-  -> Link
-  -> Router
-  -> TargetPort queue
-  -> target / TmMem
-```
-
-当前子网划分：
-
-- request subnet：`RD_REQ + WR_REQ`
-- data subnet：`WR_DAT`
-
-### 4.2 响应路径
-
-```text
-target / TmMem
-  -> TargetPort
-  -> response subnet
-  -> Router
-  -> Link
-  -> Router
+TmMem / target
+  -> TmRingTargetPort
+  -> target TmRingRouter LOCAL
+  -> TmRingLink
+  -> one or more intermediate TmRingRouter
+  -> master TmRingRouter LOCAL
   -> TmRingInf
-  -> upstream
+  -> BIU/API
 ```
 
-当前响应语义：
+`RD_RSP`、`WR_RSP`、`RSP` 都走 `RSP subnet`。`RD_RSP` 支持多 lane，lane 信息保存在 `pld->ring_rsp_lane`。
 
-- `RD_RSP`
-- `WR_REQ_RSP`
-- `WR_DAT_RSP`
+## 4. 模块分工
 
-## 5. 当前 router 为什么不向 Garnet 靠齐
+详细资源和连接关系见 [ring_module_resources.md](./ring_module_resources.md)。这里给出简表：
 
-当前不建议向 Garnet 全面靠齐，原因是：
+| 模块 | 主要职责 | 主要资源 |
+| --- | --- | --- |
+| `TmRingFabric` | 创建和连接整张 Ring | NIU、Router、Link、TargetPort、Topology、FlowCtrl |
+| `TmRingInf` | Master 侧 NIU | `bus_inf_`、`router_inf_`、本地命令队列、OSD、completion 表 |
+| `TmRingRouter` | Ring stop 转发 | `LOCAL/EAST/WEST` 端口、输出接口、RR 指针 |
+| `TmRingLink` | 有向链路 | `src_inf_`、`dst_inf_`、in-flight FIFO、序列化状态 |
+| `TmRingTargetPort` | Target 侧 NIU | `ring_inf_`、memory `inf_`、target request queue、response timing |
+| `TmRingTopology` | 节点和路由 | master/target node 映射、interleave、方向计算 |
+| `TmBusFlowCtrl` | Target 流控 | credit、token、outstanding、busy cycle |
 
-- 你的目标是 SoC 级互连模型，不是 NoC 微结构模型。
-- 一旦下沉到 flit/VC/credit，会明显增加复杂度。
-- AI Core 协议语义会被网络细节稀释。
+## 5. 缓存放在哪里
 
-建议只向 Garnet 靠齐“形状”，不要靠齐“粒度”。
+当前设计不把所有缓存都放到 Router：
 
-也就是保留：
+- `TmRingInf`：保存 master 本地命令、写数据、API completion。
+- `TmRingRouter`：只保留端口短缓存，用于一跳转发和仲裁。
+- `TmRingLink`：保存传播延迟中的 in-flight packet。
+- `TmRingTargetPort`：保存 target 本地 request queue 和 response issue timing。
 
-- NIU
-- Router
-- Link
-- TargetPort
-- Fabric
+这样做的边界更清楚：
 
-但不引入：
+- NIU 负责 master-side 状态。
+- Router 负责当前 hop 的转发。
+- Link 负责链路延迟和吞吐。
+- TargetPort 负责 memory-side 状态。
 
-- flit
-- VC
-- InputUnit / OutputUnit
-- SwitchAllocator / CrossbarSwitch
-- credit link
+## 6. Link 建模
 
-## 6. 和 SimpleNetwork 的关系
+`TmRingLink` 同时表达两件事：
 
-当前更适合的对齐对象是：
+- propagation latency：通过 `inflight_packets_` 的 `TmQue` 延迟表达。
+- serialization bandwidth：通过 `next_send_time_` 和 `ring_link_width_bytes` 表达。
 
-**SimpleNetwork 的 endpoint + switch/throttle 思路**
+packet byte 计算遵循：
 
-对应关系：
+- `RD` / `WR`：只算请求头。
+- `WR_DAT`：算写数据大小。
+- `RD_RSP`：算读响应数据大小。
+- `WR_RSP` / `RSP`：只算响应头。
 
-- `TmRingInf`
-  类似 message-buffer endpoint
-- `TmRingRouter`
-  类似粗粒度 switch
-- `TmRingLink`
-  类似输出 throttle / link timing
+## 7. Flow control
 
-这比 Garnet 更贴近你现在的目标层次。
+模型有多层反压：
 
-## 7. 模型边界
+- `TmInf::send()` 失败：下游端口满。
+- `TmQue::full()`：内部队列满。
+- Master OSD：限制每个 master 在途读写事务。
+- Link OSD：限制每条 link 每个 subnet 的 in-flight packet。
+- Target credit/token/outstanding：限制 target 侧可接收和可发射能力。
 
-当前建议把模型边界明确成：
+统一规则是：下游不接收时，不 pop 上游队头。
 
-- 支持多 core、多 target、多 channel
-- 支持可配 interleave、延迟、OSD、busy time
-- 支持主瓶颈分析
-- 不追求 router 微结构逐周期准确
+## 8. 与 gem5 SimpleNetwork 的对应关系
 
-这就是当前模型最合理的收敛边界。
+| gem5 SimpleNetwork 概念 | 当前 Ring 对应 |
+| --- | --- |
+| MessageBuffer | `TmInf` / `TmQue` |
+| Switch | `TmRingRouter` |
+| Throttle / Link | `TmRingLink` |
+| Endpoint queue | `TmRingInf` / `TmRingTargetPort` |
+| Logical network | `REQ subnet` / `RSP subnet` |
+
+当前模型更像 SimpleNetwork，而不是 Garnet。
+
+## 9. Debug 和可观测性
+
+当前 Ring 主模块都创建独立 log：
+
+- Fabric：网络创建和绑定。
+- Inf：master 请求、写 grant、写数据、completion。
+- Router：route commit。
+- Link：enqueue、drain、dst full。
+- TargetPort：request 到 memory、response 回 Ring。
+
+这些 log 可以用于追踪一笔事务从 master 到 target 再返回的完整路径。
