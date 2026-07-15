@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "cfg.h"
+#include "pem_log.h"
 #include "tm_bus_flow_ctrl.h"
 #include "tm_clock.h"
 #include "tm_engine.h"
@@ -84,6 +85,7 @@ class TmRingFabric : public tm_engine::TmModule
 
     std::shared_ptr<TmRingTopology> topology_;
     std::shared_ptr<TmBusFlowCtrl> flow_ctrl_;
+    p_logger_t log_ = nullptr;
 
   protected:
     // Build stages used by config().

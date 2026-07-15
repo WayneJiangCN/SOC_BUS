@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "pem_log.h"
 #include "tm_clock.h"
 #include "tm_engine.h"
 #include "tm_que.h"
@@ -64,6 +65,7 @@ class TmRingLink : public tm_engine::TmModule {
   std::vector<LinkSubnetStats> stats_;
   p_tm_com_inf_t src_inf_ = nullptr;
   p_tm_com_inf_t dst_inf_ = nullptr;
+  p_logger_t log_ = nullptr;
 };
 
 using tm_ring_link_t = TmRingLink;

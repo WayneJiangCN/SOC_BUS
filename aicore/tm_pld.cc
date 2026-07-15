@@ -2,7 +2,7 @@
 
 using namespace std;
 
-INIT_TM_PLD_GID;  
+INIT_TM_PLD_GID;
 INIT_TM_PLD_TYPEID;
 
 //-------------------------------------------------------------------------------------------------
@@ -13,7 +13,7 @@ TmPld::TmPld()
 }
 
 
-TmPld::TmPld(any_t content) 
+TmPld::TmPld(any_t content)
 : gid(++cur_gid)
 , content(content)
 {

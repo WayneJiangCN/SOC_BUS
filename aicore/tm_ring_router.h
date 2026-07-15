@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "pem_log.h"
 #include "tm_clock.h"
 #include "tm_engine.h"
 #include "tm_pld.h"
@@ -91,6 +92,7 @@ class TmRingRouter : public tm_engine::TmModule
     p_tm_ring_link_t west_link_ = nullptr;
     std::vector<p_tm_com_inf_t> local_master_infs_;
     std::vector<p_tm_com_inf_t> local_target_infs_;
+    p_logger_t log_ = nullptr;
 };
 
 using tm_ring_router_t = TmRingRouter;

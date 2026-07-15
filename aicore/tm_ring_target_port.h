@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "pem_log.h"
 #include "tm_clock.h"
 #include "tm_engine.h"
 #include "tm_inf.h"
@@ -86,6 +87,7 @@ class TmRingTargetPort : public tm_engine::TmModule
     std::vector<tm_engine::tm_time_t> next_rd_rsp_issue_time_;
     tm_engine::tm_time_t next_wr_req_rsp_issue_time_ = 0;
     tm_engine::tm_time_t next_wr_dat_rsp_issue_time_ = 0;
+    p_logger_t log_ = nullptr;
 };
 
 using tm_ring_target_port_t = TmRingTargetPort;

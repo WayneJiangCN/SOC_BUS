@@ -33,6 +33,11 @@ TmRingFabric::TmRingFabric(p_tm_clk_t clk, p_tm_ring_cfg_t cfg)
 TmRingFabric::~TmRingFabric() {}
 
 void TmRingFabric::config() {
+  log_para_t log_para(this->name() + ".log");
+  log_ = pem_log::create_logger(log_para);
+  PEM_LOG_INFO(log_, "[{0:d}] config masters:{1:d} targets:{2:d}",
+               time(), cfg_->num_masters, cfg_->num_targets);
+
   init_topology_and_flow_ctrl();
   clear_components();
 
@@ -117,6 +122,10 @@ void TmRingFabric::create_link(uint32_t router_id, TmRingPortDir out_dir) {
   links_[make_link_key(router_id, out_dir, dst_router, dst_dir)] =
       tm_make_ring_link(link_name, clk_, cfg_, ring_link_latency_, dst_router,
                         dst_dir);
+  PEM_LOG_INFO(log_, "[{0:d}] create_link src_router:{1:d} dir:{2:d} "
+                     "dst_router:{3:d} dst_dir:{4:d}",
+               time(), router_id, tm_ring_port_index(out_dir), dst_router,
+               tm_ring_port_index(dst_dir));
 }
 
 void TmRingFabric::bind_master_nius() {
@@ -132,6 +141,9 @@ void TmRingFabric::bind_master_niu(uint32_t idx, p_tm_ring_inf_t inf) {
   uint32_t source_router = topology_->master_node(idx);
   inf->attach(idx, topology_, flow_ctrl_);
   routers_[source_router]->bind_local_master(idx, inf->router_inf());
+  PEM_LOG_INFO(log_, "[{0:d}] bind_master port:{1:d} mst_id:{2:d} "
+                     "router:{3:d}",
+               time(), idx, topology_->port_master_id(idx), source_router);
 }
 
 void TmRingFabric::attach_routers() {
@@ -166,12 +178,15 @@ void TmRingFabric::bind_target_ports() {
     uint32_t router_id = topology_->target_node(target_id);
     target_port->attach(target_id, flow_ctrl_);
     routers_[router_id]->bind_local_target(target_id, target_port->ring_inf());
+    PEM_LOG_INFO(log_, "[{0:d}] bind_target target:{1:d} router:{2:d}",
+                 time(), target_id, router_id);
   }
 }
 
 void TmRingFabric::build() {}
 
 void TmRingFabric::reset() {
+  PEM_LOG_INFO(log_, "[{0:d}] reset", time());
   for (auto& niu : master_nius_) {
     niu->reset();
   }
@@ -212,6 +227,7 @@ void TmRingFabric::attach_master(uint32_t idx, p_tm_ring_inf_t inf) {
   }
 
   bind_master_niu(idx, inf);
+  PEM_LOG_INFO(log_, "[{0:d}] attach_master_niu port:{1:d}", time(), idx);
 }
 
 void TmRingFabric::attach_master(p_tm_ring_inf_t inf) {
@@ -233,6 +249,7 @@ void TmRingFabric::attach_master(uint32_t idx, p_tm_com_inf_t inf) {
     return;
   }
   master_nius_[idx]->attach(inf);
+  PEM_LOG_INFO(log_, "[{0:d}] attach_master_inf port:{1:d}", time(), idx);
 }
 
 void TmRingFabric::attach_target(uint32_t idx, p_tm_com_inf_t inf) {
@@ -240,6 +257,7 @@ void TmRingFabric::attach_target(uint32_t idx, p_tm_com_inf_t inf) {
     return;
   }
   target_ports_[idx]->attach(inf);
+  PEM_LOG_INFO(log_, "[{0:d}] attach_target_inf target:{1:d}", time(), idx);
 }
 
 void TmRingFabric::attach_target(uint32_t idx, p_tm_mem_t mem) {

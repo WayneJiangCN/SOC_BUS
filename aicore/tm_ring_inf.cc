@@ -21,6 +21,10 @@ TmRingInf::TmRingInf(const std::string& name, p_tm_clk_t clk, uint32_t inf_id,
 TmRingInf::~TmRingInf() {}
 
 void TmRingInf::config() {
+  log_para_t log_para(this->name() + ".log");
+  log_ = pem_log::create_logger(log_para);
+  PEM_LOG_INFO(log_, "[{0:d}] config inf_id:{1:d}", time(), inf_id_);
+
   uint32_t chan_num =
       std::max<uint32_t>(tm_ring_cmd_bus_channel(PldCmd::WR_DAT) + 1,
                          tm_ring_rd_rsp_bus_channel(0) + cfg_->rd_rsp_port_num);
@@ -56,6 +60,7 @@ void TmRingInf::config() {
 }
 
 void TmRingInf::reset() {
+  PEM_LOG_INFO(log_, "[{0:d}] reset", time());
   bus_inf_->reset();
   router_inf_->reset();
   rd_cmds_->clear();
@@ -104,6 +109,8 @@ uint32_t TmRingInf::send_rd_req(uint64_t address, uint32_t size) {
   }
   rd_cmds_->push_back(req);
   track_request(cur_req_id, req, PldCmd::RD);
+  PEM_LOG_INFO(log_, "[{0:d}] api_send_rd gid:{1:d} addr:0x{2:x} size:{3:d}",
+               time(), req->gid, address, size);
   return cur_req_id;
 }
 
@@ -120,6 +127,8 @@ uint32_t TmRingInf::send_wr_req(uint64_t address, uint32_t size) {
   }
   wr_cmds_->push_back(req);
   track_request(cur_req_id, req, PldCmd::WR);
+  PEM_LOG_INFO(log_, "[{0:d}] api_send_wr gid:{1:d} addr:0x{2:x} size:{3:d}",
+               time(), req->gid, address, size);
   return cur_req_id;
 }
 
@@ -204,6 +213,10 @@ void TmRingInf::recv_cmd(PldCmd cmd_type) {
       }
     }
     bus_inf_->pop_pld(chan);
+    PEM_LOG_INFO(log_, "[{0:d}] recv_cmd cmd:{1:d} gid:{2:d} chan:{3:d} "
+                       "addr:0x{4:x} size:{5:d}",
+                 time(), static_cast<uint32_t>(cmd_type), cmd->gid,
+                 cmd->chan, cmd->addr, cmd->size);
   }
 }
 
@@ -262,6 +275,11 @@ bool TmRingInf::issue_cmd_to_ring(PldCmd cmd, p_tm_pld_t pld) {
     } else if (cmd == PldCmd::WR) {
       wr_outstanding_++;
     }
+    PEM_LOG_INFO(log_, "[{0:d}] issue_ring cmd:{1:d} gid:{2:d} "
+                       "target:{3:d} src:{4:d} dst:{5:d} addr:0x{6:x}",
+                 time(), static_cast<uint32_t>(cmd), pld->gid,
+                 tm_pld_target_id(pld), tm_pld_src_node(pld),
+                 tm_pld_dst_node(pld), pld->addr);
     return true;
   }
   return false;
@@ -281,11 +299,19 @@ void TmRingInf::release_write_osd() {
 
 bool TmRingInf::accept_rd_rsp(p_tm_pld_t rsp) {
   if (retire_read_response(rsp)) {
+    PEM_LOG_INFO(log_, "[{0:d}] api_rd_rsp_done gid:{1:d} lane:{2:d}",
+                 time(), rsp->gid, rsp->ring_rsp_lane);
     return true;
   }
 
-  return bus_inf_->send(response_channel(PldCmd::RD_RSP, rsp->ring_rsp_lane),
-                        rsp);
+  bool sent = bus_inf_->send(response_channel(PldCmd::RD_RSP, rsp->ring_rsp_lane),
+                             rsp);
+  if (sent) {
+    PEM_LOG_INFO(log_, "[{0:d}] send_rd_rsp_to_bus gid:{1:d} lane:{2:d} "
+                       "addr:0x{3:x} size:{4:d}",
+                 time(), rsp->gid, rsp->ring_rsp_lane, rsp->addr, rsp->size);
+  }
+  return sent;
 }
 
 bool TmRingInf::accept_wr_req_rsp(p_tm_pld_t rsp) {
@@ -300,6 +326,9 @@ bool TmRingInf::accept_wr_req_rsp(p_tm_pld_t rsp) {
     return false;
   }
   wr_data_->push_back(wr_dat);
+  PEM_LOG_INFO(log_, "[{0:d}] recv_wr_grant gid:{1:d} target:{2:d} "
+                     "push_wr_dat size:{3:d}",
+               time(), rsp->gid, tm_pld_target_id(rsp), wr_dat->size);
   return true;
 }
 
@@ -314,6 +343,8 @@ bool TmRingInf::accept_wr_dat_rsp(p_tm_pld_t rsp) {
   // otherwise, enqueue the write response for the master to read
   pending_writes_.erase(rsp->gid);
   wr_dat_rsp_q_->push_back(rsp);
+  PEM_LOG_INFO(log_, "[{0:d}] enqueue_wr_dat_rsp gid:{1:d} addr:0x{2:x}",
+               time(), rsp->gid, rsp->addr);
   return true;
 }
 
@@ -356,6 +387,8 @@ void TmRingInf::complete_rsp(p_tm_pld_t rsp) {
     release_write_osd();
     flow_ctrl_->release_target_credit(target_id,
                                       tm_ring_cmd_to_req(PldCmd::WR_DAT));
+    PEM_LOG_INFO(log_, "[{0:d}] complete_wr gid:{1:d} target:{2:d}",
+                 time(), rsp->gid, target_id);
     return;
   }
 
@@ -374,6 +407,8 @@ void TmRingInf::complete_rsp(p_tm_pld_t rsp) {
   if (rd_state.rsp_seen >= rd_state.rsp_expected) {
     release_read_osd();
     rd_rsp_states_.erase(key);
+    PEM_LOG_INFO(log_, "[{0:d}] complete_rd gid:{1:d} target:{2:d}",
+                 time(), rsp->gid, target_id);
   }
 }
 
@@ -421,6 +456,8 @@ p_tm_pld_t TmRingInf::make_write_data(p_tm_pld_t grant) {
   wr_dat->tag_id = grant->tag_id;
   wr_dat->smmu_tnx_id = original->smmu_tnx_id;
 
+  PEM_LOG_INFO(log_, "[{0:d}] make_wr_dat gid:{1:d} addr:0x{2:x} size:{3:d}",
+               time(), wr_dat->gid, wr_dat->addr, wr_dat->size);
   return wr_dat;
 }
 

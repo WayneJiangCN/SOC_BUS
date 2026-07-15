@@ -38,6 +38,9 @@ void TmRingRouter::config(const std::string& name, p_tm_clk_t clk,
   this->name(name_);
   clk_ = clk;
   cfg_ = cfg;
+  log_para_t log_para(name_ + ".log");
+  log_ = pem_log::create_logger(log_para);
+  PEM_LOG_INFO(log_, "[{0:d}] config", time());
 
   port_infs_.clear();
   link_out_infs_.clear();
@@ -128,10 +131,14 @@ void TmRingRouter::attach(uint32_t router_id,
   if (east_link_ != nullptr) {
     link_out_infs_[ring_port_slot(TmRingPortDir::EAST)]->connect(
         east_link_->src_inf());
+    PEM_LOG_INFO(log_, "[{0:d}] attach_east_link router:{1:d}",
+                 time(), router_id_);
   }
   if (west_link_ != nullptr) {
     link_out_infs_[ring_port_slot(TmRingPortDir::WEST)]->connect(
         west_link_->src_inf());
+    PEM_LOG_INFO(log_, "[{0:d}] attach_west_link router:{1:d}",
+                 time(), router_id_);
   }
 }
 
@@ -150,6 +157,8 @@ void TmRingRouter::bind_local_master(uint32_t master_port,
                  local_master_infs_[master_port]->vld);
   }
   local_master_infs_[master_port]->connect(inf);
+  PEM_LOG_INFO(log_, "[{0:d}] bind_local_master port:{1:d}",
+               time(), master_port);
 }
 
 void TmRingRouter::bind_local_target(uint32_t target_id,
@@ -167,6 +176,8 @@ void TmRingRouter::bind_local_target(uint32_t target_id,
                  local_target_infs_[target_id]->vld);
   }
   local_target_infs_[target_id]->connect(inf);
+  PEM_LOG_INFO(log_, "[{0:d}] bind_local_target target:{1:d}",
+               time(), target_id);
 }
 
 void TmRingRouter::route_local_request() {
@@ -415,4 +426,10 @@ void TmRingRouter::commit_packet(TmRingSubnet subnet,
   auto in_inf = inf_for_class(candidate->in_dir, pld->ring_traffic_class,
                               pld->ring_rsp_lane);
   in_inf->pop_pld(packet_channel(pld->ring_traffic_class, pld->ring_rsp_lane));
+  PEM_LOG_INFO(log_, "[{0:d}] route_commit router:{1:d} subnet:{2:d} "
+                     "cmd:{3:d} gid:{4:d} in:{5:d} out:{6:d} addr:0x{7:x}",
+               time(), router_id_, tm_ring_subnet_index(subnet),
+               pld->ring_traffic_class, pld->gid,
+               tm_ring_port_index(candidate->in_dir),
+               tm_ring_port_index(candidate->out_dir), pld->addr);
 }

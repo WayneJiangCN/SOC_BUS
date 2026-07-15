@@ -32,6 +32,10 @@ TmRingTargetPort::config(const std::string& name, p_tm_clk_t clk,
     clk_ = clk;
     cfg_ = cfg;
     rd_rsp_port_num_ = rd_rsp_port_num;
+    log_para_t log_para(name_ + ".log");
+    log_ = pem_log::create_logger(log_para);
+    PEM_LOG_INFO(log_, "[{0:d}] config rd_rsp_ports:{1:d}",
+                 time(), rd_rsp_port_num_);
 
     uint32_t chan_num =
         tm_ring_rd_rsp_bus_channel(0) + rd_rsp_port_num_;
@@ -90,6 +94,8 @@ TmRingTargetPort::attach(uint32_t target_id,
 {
     target_id_ = target_id;
     flow_ctrl_ = flow_ctrl;
+    PEM_LOG_INFO(log_, "[{0:d}] attach_target target:{1:d}",
+                 time(), target_id_);
 }
 
 bool
@@ -106,6 +112,8 @@ void
 TmRingTargetPort::attach(p_tm_com_inf_t inf)
 {
     inf_->connect(inf);
+    PEM_LOG_INFO(log_, "[{0:d}] attach_mem_inf target:{1:d}",
+                 time(), target_id_);
 }
 
 void
@@ -151,6 +159,10 @@ TmRingTargetPort::recv_ring_cmd(PldCmd cmd)
         auto pld = ring_inf_->get_pld(ring_chan);
         q->push_back(pld);
         ring_inf_->pop_pld(ring_chan);
+        PEM_LOG_INFO(log_, "[{0:d}] recv_ring_cmd target:{1:d} cmd:{2:d} "
+                           "gid:{3:d} addr:0x{4:x} size:{5:d}",
+                     time(), target_id_, static_cast<uint32_t>(cmd), pld->gid,
+                     pld->addr, pld->size);
     }
 }
 
@@ -205,6 +217,10 @@ TmRingTargetPort::send_cmd(PldCmd cmd)
         flow_ctrl_->consume_target_credit(target_id_, legacy_req, pld);
         next_issue =
             time() + flow_ctrl_->calc_issue_busy_cycles(target_id_, pld);
+        PEM_LOG_INFO(log_, "[{0:d}] send_mem_cmd target:{1:d} cmd:{2:d} "
+                           "gid:{3:d} addr:0x{4:x} next_issue:{5:d}",
+                     time(), target_id_, static_cast<uint32_t>(cmd), pld->gid,
+                     pld->addr, next_issue);
     }
 }
 
@@ -230,6 +246,9 @@ TmRingTargetPort::recv_rd_cmd_rsp()
             continue;
         }
         pop_response(PldCmd::RD, lane);
+        PEM_LOG_INFO(log_, "[{0:d}] send_rd_rsp target:{1:d} gid:{2:d} "
+                           "lane:{3:d} addr:0x{4:x}",
+                     time(), target_id_, rsp->gid, lane, rsp->addr);
 
         next_issue =
             time() + flow_ctrl_->calc_rsp_busy_cycles(target_id_, rsp,
@@ -257,6 +276,9 @@ TmRingTargetPort::recv_wr_cmd_rsp()
         return;
     }
     pop_response(PldCmd::WR);
+    PEM_LOG_INFO(log_, "[{0:d}] send_wr_rsp target:{1:d} gid:{2:d} "
+                       "addr:0x{3:x}",
+                 time(), target_id_, rsp->gid, rsp->addr);
 
     next_issue =
         time() + flow_ctrl_->calc_rsp_busy_cycles(target_id_, rsp,
@@ -283,6 +305,9 @@ TmRingTargetPort::recv_wr_dat_rsp()
         return;
     }
     pop_response(PldCmd::WR_DAT);
+    PEM_LOG_INFO(log_, "[{0:d}] send_wr_dat_rsp target:{1:d} gid:{2:d} "
+                       "addr:0x{3:x}",
+                 time(), target_id_, rsp->gid, rsp->addr);
 
     next_issue =
         time() + flow_ctrl_->calc_rsp_busy_cycles(target_id_, rsp,

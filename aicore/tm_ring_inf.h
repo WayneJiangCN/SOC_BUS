@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "pem_log.h"
 #include "tm_clock.h"
 #include "tm_engine.h"
 #include "tm_inf.h"
@@ -95,6 +96,7 @@ class TmRingInf : public tm_engine::TmModule
     uint32_t req_id_ = 0;
     uint32_t rd_outstanding_ = 0;
     uint32_t wr_outstanding_ = 0;
+    p_logger_t log_ = nullptr;
 
   protected:
     uint32_t response_channel(PldCmd cmd, uint32_t lane = 0) const;

@@ -75,7 +75,7 @@ public:
 private:
     static uint64_t cur_gid;
     static uint32_t cur_type_id;
- 
+
 };
 
 // init global static variable, run it before simulation
@@ -149,4 +149,4 @@ inline uint32_t tm_pld_rsp_count(p_tm_pld_t pld) {
 
 
 
-#endif 
+#endif

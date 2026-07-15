@@ -24,10 +24,16 @@ void TmRingLink::config(const std::string& name, p_tm_clk_t clk,
   this->name(name_);
   clk_ = clk;
   cfg_ = cfg;
+  log_para_t log_para(name_ + ".log");
+  log_ = pem_log::create_logger(log_para);
   latency_ = latency;
   width_bytes_ = std::max<uint32_t>(1, cfg_->ring_link_width_bytes);
   dst_router_ = dst_router;
   dst_dir_ = dst_dir;
+  PEM_LOG_INFO(log_, "[{0:d}] config latency:{1:d} dst_router:{2:d} "
+                     "dst_dir:{3:d} width:{4:d}",
+               time(), latency_, dst_router_, tm_ring_port_index(dst_dir_),
+               width_bytes_);
 
   inflight_packets_.clear();
   next_send_time_.assign(tm_ring_subnet_count(), 0);
@@ -101,6 +107,10 @@ void TmRingLink::enqueue_ready_packet(p_tm_pld_t pld) {
   stats_[idx].inflight_peak =
       std::max(stats_[idx].inflight_peak, inflight_count_[idx]);
   next_send_time_[idx] = time() + serialization_cycles;
+  PEM_LOG_INFO(log_, "[{0:d}] enqueue subnet:{1:d} cmd:{2:d} gid:{3:d} "
+                     "bytes:{4:d} ser:{5:d} inflight:{6:d}",
+               time(), idx, pld->ring_traffic_class, pld->gid, bytes,
+               serialization_cycles, inflight_count_[idx]);
 }
 
 uint32_t TmRingLink::packet_bytes(p_tm_pld_t pld) const {
@@ -126,7 +136,11 @@ const TmRingLink::LinkSubnetStats& TmRingLink::subnet_stats(
   return stats_[tm_ring_subnet_index(subnet)];
 }
 
-void TmRingLink::attach(p_tm_com_inf_t dst_inf) { dst_inf_ = dst_inf; }
+void TmRingLink::attach(p_tm_com_inf_t dst_inf) {
+  dst_inf_ = dst_inf;
+  PEM_LOG_INFO(log_, "[{0:d}] attach_dst dst_router:{1:d} dst_dir:{2:d}",
+               time(), dst_router_, tm_ring_port_index(dst_dir_));
+}
 
 p_tm_com_inf_t TmRingLink::src_inf() const { return src_inf_; }
 
@@ -177,6 +191,8 @@ void TmRingLink::drain_ready_packets() {
       }
       if (!dst_inf_->send(dst_channel(pld), pld)) {
         stats_[idx].downstream_inf_full_stall++;
+        PEM_LOG_INFO(log_, "[{0:d}] dst_full subnet:{1:d} cmd:{2:d} gid:{3:d}",
+                     time(), idx, pld->ring_traffic_class, pld->gid);
         break;
       }
 
@@ -184,6 +200,10 @@ void TmRingLink::drain_ready_packets() {
         inflight_count_[idx]--;
       }
       q->pop_front();
+      PEM_LOG_INFO(log_, "[{0:d}] drain subnet:{1:d} cmd:{2:d} gid:{3:d} "
+                         "dst_router:{4:d} remain:{5:d}",
+                   time(), idx, pld->ring_traffic_class, pld->gid,
+                   dst_router_, inflight_count_[idx]);
     }
   }
 }
