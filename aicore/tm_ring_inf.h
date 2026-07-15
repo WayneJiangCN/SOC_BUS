@@ -7,7 +7,6 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
-#include <vector>
 
 #include "tm_clock.h"
 #include "tm_engine.h"
@@ -18,6 +17,8 @@
 
 using tm_ring_topology_t = TmRingTopology;
 using p_tm_ring_topology_t = std::shared_ptr<tm_ring_topology_t>;
+
+class TmBusFlowCtrl;
 
 struct TmRingInfApiReq
 {
@@ -47,8 +48,7 @@ class TmRingInf : public tm_engine::TmModule
 
     void attach(p_tm_com_inf_t inf);
     void attach(uint32_t master_port, p_tm_ring_topology_t topology,
-                p_tm_com_inf_t router_req_inf,
-                p_tm_com_inf_t router_wr_dat_inf);
+                std::shared_ptr<TmBusFlowCtrl> flow_ctrl);
     void set_master_id(uint32_t mst_id);
 
     uint32_t send_rd_req(uint64_t address, uint32_t size);
@@ -64,20 +64,15 @@ class TmRingInf : public tm_engine::TmModule
     void send_rd_cmd();
     void send_wr_cmd();
     void send_wr_dat();
-    void send_rd_rsp();
     void send_wr_dat_rsp();
-    bool recv_rsp(p_tm_pld_t rsp);
+    void recv_router_rsp();
 
     void release_read_osd();
     void release_write_osd();
-    bool can_accept_rsp(p_tm_pld_t rsp);
-
-    bool accept_rd_rsp(p_tm_pld_t rsp);
-    bool accept_wr_req_rsp(p_tm_pld_t rsp);
-    bool accept_wr_dat_rsp(p_tm_pld_t rsp);
 
   public:
     p_tm_com_inf_t bus_inf_ = nullptr;
+    p_tm_com_inf_t router_inf() const;
     uint32_t inf_id_ = 0;
 
   protected:
@@ -86,16 +81,16 @@ class TmRingInf : public tm_engine::TmModule
 
     uint32_t master_port_ = 0;
     p_tm_ring_topology_t topology_ = nullptr;
-    p_tm_com_inf_t router_req_inf_ = nullptr;
-    p_tm_com_inf_t router_wr_dat_inf_ = nullptr;
+    std::shared_ptr<TmBusFlowCtrl> flow_ctrl_ = nullptr;
+    p_tm_com_inf_t router_inf_ = nullptr;
     p_tm_com_que_t rd_cmds_ = nullptr;
     p_tm_com_que_t wr_cmds_ = nullptr;
     p_tm_com_que_t wr_data_ = nullptr;
-    std::vector<p_tm_com_que_t> rd_rsp_qs_;
     p_tm_com_que_t wr_dat_rsp_q_ = nullptr;
 
     std::unordered_map<uint32_t, TmRingInfApiReq> req_map_;
     std::unordered_map<uint64_t, p_tm_pld_t> pending_writes_;
+    std::unordered_map<uint64_t, TmRingRdRspState> rd_rsp_states_;
 
     uint32_t req_id_ = 0;
     uint32_t rd_outstanding_ = 0;
@@ -106,10 +101,15 @@ class TmRingInf : public tm_engine::TmModule
 
     void recv_cmd(PldCmd cmd);
     void send_cmd(PldCmd cmd);
+    bool recv_rsp(p_tm_pld_t rsp);
+    bool accept_rd_rsp(p_tm_pld_t rsp);
+    bool accept_wr_req_rsp(p_tm_pld_t rsp);
+    bool accept_wr_dat_rsp(p_tm_pld_t rsp);
     p_tm_com_que_t req_queue(PldCmd cmd) const;
     bool issue_cmd_to_ring(PldCmd cmd, p_tm_pld_t pld);
     void prepare_request_metadata(p_tm_pld_t pld, PldCmd cmd);
     bool can_reserve_master_osd(PldCmd cmd) const;
+    void complete_rsp(p_tm_pld_t rsp);
 
     void track_request(uint32_t req_id, p_tm_pld_t req, PldCmd cmd);
     p_tm_pld_t make_write_data(p_tm_pld_t grant);

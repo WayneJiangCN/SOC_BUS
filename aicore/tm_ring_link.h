@@ -40,15 +40,13 @@ class TmRingLink : public tm_engine::TmModule {
   void enqueue(p_tm_pld_t pld);
   uint32_t packet_bytes(p_tm_pld_t pld) const;
   const LinkSubnetStats& subnet_stats(TmRingSubnet subnet) const;
-  void attach(p_tm_com_inf_t req_inf, p_tm_com_inf_t wr_dat_inf,
-              const std::vector<p_tm_com_inf_t>& rd_rsp_infs,
-              p_tm_com_inf_t wr_req_rsp_inf, p_tm_com_inf_t wr_dat_rsp_inf);
+  void attach(p_tm_com_inf_t dst_inf);
   uint32_t dst_router() const;
   TmRingPortDir dst_dir() const;
 
  private:
   void drain_ready_packets();
-  p_tm_com_inf_t dst_inf(p_tm_pld_t pld) const;
+  uint32_t dst_channel(p_tm_pld_t pld) const;
 
   std::string name_;
   tm_engine::p_tm_clk_t clk_ = nullptr;
@@ -62,11 +60,7 @@ class TmRingLink : public tm_engine::TmModule {
   std::vector<tm_engine::tm_time_t> next_send_time_;
   std::vector<p_tm_com_que_t> ready_packets_;
   std::vector<LinkSubnetStats> stats_;
-  p_tm_com_inf_t req_inf_ = nullptr;
-  p_tm_com_inf_t wr_dat_inf_ = nullptr;
-  std::vector<p_tm_com_inf_t> rd_rsp_infs_;
-  p_tm_com_inf_t wr_req_rsp_inf_ = nullptr;
-  p_tm_com_inf_t wr_dat_rsp_inf_ = nullptr;
+  p_tm_com_inf_t dst_inf_ = nullptr;
 };
 
 using tm_ring_link_t = TmRingLink;

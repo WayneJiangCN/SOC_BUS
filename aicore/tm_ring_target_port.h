@@ -39,18 +39,10 @@ class TmRingTargetPort : public tm_engine::TmModule
     void reset();
     bool idle() const;
 
-    void attach(uint32_t target_id, std::shared_ptr<TmBusFlowCtrl> flow_ctrl,
-                const std::vector<p_tm_com_inf_t>& rd_rsp_router_infs,
-                p_tm_com_inf_t wr_req_rsp_router_inf,
-                p_tm_com_inf_t wr_dat_rsp_router_inf);
+    void attach(uint32_t target_id, std::shared_ptr<TmBusFlowCtrl> flow_ctrl);
     void attach(p_tm_com_inf_t inf);
     void attach(p_tm_mem_t mem);
-
-    bool can_accept_request(PldCmd cmd) const;
-    void accept_request(PldCmd cmd, p_tm_pld_t pld);
-    bool has_request(PldCmd cmd) const;
-    p_tm_pld_t front_request(PldCmd cmd) const;
-    void pop_request(PldCmd cmd);
+    p_tm_com_inf_t ring_inf() const;
 
     void send_pending_requests();
     void send_rd_cmd();
@@ -60,6 +52,7 @@ class TmRingTargetPort : public tm_engine::TmModule
     void recv_rd_cmd_rsp();
     void recv_wr_cmd_rsp();
     void recv_wr_dat_rsp();
+    void recv_ring_req();
 
     bool has_response(PldCmd cmd, uint32_t lane = 0) const;
     p_tm_pld_t front_response(PldCmd cmd,
@@ -68,9 +61,9 @@ class TmRingTargetPort : public tm_engine::TmModule
 
   private:
     void send_cmd(PldCmd cmd);
+    void recv_ring_cmd(PldCmd cmd);
     p_tm_com_que_t req_q(PldCmd cmd) const;
-    p_tm_com_inf_t rsp_router_inf(PldCmd cmd,
-                                  uint32_t lane = 0) const;
+    uint32_t ring_channel(PldCmd cmd, uint32_t lane = 0) const;
     tm_engine::tm_time_t& next_req_issue_time(PldCmd cmd);
     tm_engine::tm_time_t& next_rsp_issue_time(PldCmd cmd,
                                               uint32_t lane = 0);
@@ -83,14 +76,11 @@ class TmRingTargetPort : public tm_engine::TmModule
     uint32_t rd_rsp_port_num_ = 0;
     std::shared_ptr<TmBusFlowCtrl> flow_ctrl_ = nullptr;
     p_tm_com_inf_t inf_ = nullptr;
+    p_tm_com_inf_t ring_inf_ = nullptr;
 
     p_tm_com_que_t rd_req_q_ = nullptr;
     p_tm_com_que_t wr_req_q_ = nullptr;
     p_tm_com_que_t wr_dat_q_ = nullptr;
-
-    std::vector<p_tm_com_inf_t> rd_rsp_router_infs_;
-    p_tm_com_inf_t wr_req_rsp_router_inf_ = nullptr;
-    p_tm_com_inf_t wr_dat_rsp_router_inf_ = nullptr;
 
     std::array<tm_engine::tm_time_t, 3> next_req_issue_time_ = {0, 0, 0};
     std::vector<tm_engine::tm_time_t> next_rd_rsp_issue_time_;

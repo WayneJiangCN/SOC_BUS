@@ -118,35 +118,13 @@ const TmRingLink::LinkSubnetStats& TmRingLink::subnet_stats(
   return stats_[tm_ring_subnet_index(subnet)];
 }
 
-void TmRingLink::attach(p_tm_com_inf_t req_inf, p_tm_com_inf_t wr_dat_inf,
-                        const std::vector<p_tm_com_inf_t>& rd_rsp_infs,
-                        p_tm_com_inf_t wr_req_rsp_inf,
-                        p_tm_com_inf_t wr_dat_rsp_inf) {
-  req_inf_ = req_inf;
-  wr_dat_inf_ = wr_dat_inf;
-  rd_rsp_infs_ = rd_rsp_infs;
-  wr_req_rsp_inf_ = wr_req_rsp_inf;
-  wr_dat_rsp_inf_ = wr_dat_rsp_inf;
+void TmRingLink::attach(p_tm_com_inf_t dst_inf) {
+  dst_inf_ = dst_inf;
 }
 
-p_tm_com_inf_t TmRingLink::dst_inf(p_tm_pld_t pld) const {
-  auto cmd = static_cast<PldCmd>(pld->ring_traffic_class);
-  if (cmd == PldCmd::RD || cmd == PldCmd::WR) {
-    return req_inf_;
-  }
-  if (cmd == PldCmd::WR_DAT) {
-    return wr_dat_inf_;
-  }
-  if (cmd == PldCmd::WR_RSP) {
-    return wr_req_rsp_inf_;
-  }
-  if (cmd == PldCmd::RSP) {
-    return wr_dat_rsp_inf_;
-  }
-  if (pld->ring_rsp_lane < rd_rsp_infs_.size()) {
-    return rd_rsp_infs_[pld->ring_rsp_lane];
-  }
-  return nullptr;
+uint32_t TmRingLink::dst_channel(p_tm_pld_t pld) const {
+  return tm_ring_packet_channel(static_cast<PldCmd>(pld->ring_traffic_class),
+                                pld->ring_rsp_lane);
 }
 
 void TmRingLink::drain_ready_packets() {
@@ -165,15 +143,14 @@ void TmRingLink::drain_ready_packets() {
         continue;
       }
 
-      auto dst_inf = this->dst_inf(pld);
-      if (dst_inf == nullptr) {
+      if (dst_inf_ == nullptr) {
         stats_[idx].invalid_dst_stall++;
         std::cerr << name_ << ": missing destination inf for traffic_class "
                   << pld->ring_traffic_class << std::endl;
         assert(false && "TmRingLink missing destination inf");
         break;
       }
-      if (!dst_inf->send(pld)) {
+      if (!dst_inf_->send(dst_channel(pld), pld)) {
         stats_[idx].downstream_inf_full_stall++;
         break;
       }

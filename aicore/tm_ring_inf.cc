@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "tm_bus_flow_ctrl.h"
 #include "tm_pld.h"
 
 using namespace std;
@@ -31,6 +32,12 @@ void TmRingInf::config() {
   tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_wr_cmd), bus_inf_->vld);
   tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_wr_dat), bus_inf_->vld);
 
+  router_inf_ = tm_make_com_inf(clk_, this->name() + "_router_inf",
+                                cfg_->master_inf_depth);
+  router_inf_->set_chan_num(tm_ring_packet_channel_count(cfg_->rd_rsp_port_num));
+  tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_router_rsp),
+               router_inf_->vld);
+
   rd_cmds_ =
       tm_make_com_que(clk_, this->name() + "_rd_cmds", cfg_->master_inf_depth);
   wr_cmds_ =
@@ -41,15 +48,6 @@ void TmRingInf::config() {
   tm_sensitive(TM_MAKE_CPROC(&TmRingInf::send_wr_cmd), wr_cmds_->vld);
   tm_sensitive(TM_MAKE_CPROC(&TmRingInf::send_wr_dat), wr_data_->vld);
 
-  rd_rsp_qs_.clear();
-  auto send_rd_rsp_proc = TM_MAKE_CPROC(&TmRingInf::send_rd_rsp);
-  for (uint32_t lane = 0; lane < cfg_->rd_rsp_port_num; ++lane) {
-    rd_rsp_qs_.push_back(tm_make_com_que(
-        clk_, this->name() + "_rd_rsp_q_" + std::to_string(lane),
-        cfg_->master_inf_depth));
-    tm_sensitive(send_rd_rsp_proc, rd_rsp_qs_.back()->vld);
-  }
-
   wr_dat_rsp_q_ = tm_make_com_que(clk_, this->name() + "_wr_dat_rsp_q",
                                   cfg_->master_inf_depth);
   tm_sensitive(TM_MAKE_CPROC(&TmRingInf::send_wr_dat_rsp), wr_dat_rsp_q_->vld);
@@ -59,40 +57,36 @@ void TmRingInf::config() {
 
 void TmRingInf::reset() {
   bus_inf_->reset();
+  router_inf_->reset();
   rd_cmds_->clear();
   wr_cmds_->clear();
   wr_data_->clear();
-  for (auto& q : rd_rsp_qs_) {
-    q->clear();
-  }
   wr_dat_rsp_q_->clear();
   req_map_.clear();
   pending_writes_.clear();
+  rd_rsp_states_.clear();
   req_id_ = 0;
   rd_outstanding_ = 0;
   wr_outstanding_ = 0;
 }
 
 bool TmRingInf::idle() {
-  bool rsp_idle = wr_dat_rsp_q_->empty();
-  for (auto& q : rd_rsp_qs_) {
-    rsp_idle = rsp_idle && q->empty();
-  }
-  return bus_inf_->idle() && rsp_idle && rd_cmds_->empty() &&
-         wr_cmds_->empty() && wr_data_->empty() && req_map_.empty() &&
-         pending_writes_.empty() && rd_outstanding_ == 0 &&
-         wr_outstanding_ == 0;
+  return bus_inf_->idle() && router_inf_->idle() && wr_dat_rsp_q_->empty() &&
+         rd_cmds_->empty() && wr_cmds_->empty() && wr_data_->empty() &&
+         req_map_.empty() && pending_writes_.empty() &&
+         rd_rsp_states_.empty() &&
+         rd_outstanding_ == 0 && wr_outstanding_ == 0;
 }
 
 void TmRingInf::attach(p_tm_com_inf_t inf) { bus_inf_->connect(inf); }
 
+p_tm_com_inf_t TmRingInf::router_inf() const { return router_inf_; }
+
 void TmRingInf::attach(uint32_t master_port, p_tm_ring_topology_t topology,
-                       p_tm_com_inf_t router_req_inf,
-                       p_tm_com_inf_t router_wr_dat_inf) {
+                       std::shared_ptr<TmBusFlowCtrl> flow_ctrl) {
   master_port_ = master_port;
   topology_ = topology;
-  router_req_inf_ = router_req_inf;
-  router_wr_dat_inf_ = router_wr_dat_inf;
+  flow_ctrl_ = flow_ctrl;
 }
 
 void TmRingInf::set_master_id(uint32_t mst_id) { inf_id_ = mst_id; }
@@ -153,24 +147,38 @@ void TmRingInf::send_wr_cmd() { send_cmd(PldCmd::WR); }
 
 void TmRingInf::send_wr_dat() { send_cmd(PldCmd::WR_DAT); }
 
-void TmRingInf::send_rd_rsp() {
-  for (uint32_t lane = 0; lane < rd_rsp_qs_.size(); ++lane) {
-    auto q = rd_rsp_qs_[lane];
-    if (q->empty()) {
-      continue;
-    }
-
-    auto rsp = q->front();
-    if (bus_inf_->send(response_channel(PldCmd::RD, lane), rsp)) {
-      q->pop_front();
-    }
-  }
-}
-
 void TmRingInf::send_wr_dat_rsp() {
   auto rsp = wr_dat_rsp_q_->front();
   if (bus_inf_->send(response_channel(PldCmd::WR_DAT), rsp)) {
     wr_dat_rsp_q_->pop_front();
+  }
+}
+
+void TmRingInf::recv_router_rsp() {
+  for (uint32_t lane = 0; lane < cfg_->rd_rsp_port_num; ++lane) {
+    uint32_t chan = tm_ring_packet_channel(PldCmd::RD_RSP, lane);
+    if (router_inf_->valid(chan)) {
+      auto rsp = router_inf_->get_pld(chan);
+      if (recv_rsp(rsp)) {
+        router_inf_->pop_pld(chan);
+      }
+    }
+  }
+
+  uint32_t wr_rsp_chan = tm_ring_packet_channel(PldCmd::WR_RSP);
+  if (router_inf_->valid(wr_rsp_chan)) {
+    auto rsp = router_inf_->get_pld(wr_rsp_chan);
+    if (recv_rsp(rsp)) {
+      router_inf_->pop_pld(wr_rsp_chan);
+    }
+  }
+
+  uint32_t rsp_chan = tm_ring_packet_channel(PldCmd::RSP);
+  if (router_inf_->valid(rsp_chan)) {
+    auto rsp = router_inf_->get_pld(rsp_chan);
+    if (recv_rsp(rsp)) {
+      router_inf_->pop_pld(rsp_chan);
+    }
   }
 }
 
@@ -212,28 +220,6 @@ p_tm_com_que_t TmRingInf::req_queue(PldCmd cmd) const {
   return wr_data_;
 }
 
-bool TmRingInf::can_accept_rsp(p_tm_pld_t rsp) {
-  auto cmd = static_cast<PldCmd>(rsp->ring_traffic_class);
-  if (cmd == PldCmd::RD_RSP) {
-    auto it = req_map_.find(rsp->gid);
-    bool is_read = it != req_map_.end() && it->second.cmd == PldCmd::RD;
-    return is_read || !rd_rsp_qs_[rsp->ring_rsp_lane]->full();
-  }
-
-  if (cmd == PldCmd::WR_RSP) {
-    return !wr_data_->full() &&
-           pending_writes_.find(rsp->gid) != pending_writes_.end();
-  }
-
-  auto it = req_map_.find(rsp->gid);
-  bool is_write = it != req_map_.end() && it->second.cmd == PldCmd::WR;
-  if (cmd == PldCmd::RSP) {
-    return is_write || !wr_dat_rsp_q_->full();
-  }
-
-  return true;
-}
-
 bool TmRingInf::recv_rsp(p_tm_pld_t rsp) {
   auto cmd = static_cast<PldCmd>(rsp->ring_traffic_class);
   bool accepted = false;
@@ -248,6 +234,7 @@ bool TmRingInf::recv_rsp(p_tm_pld_t rsp) {
   if (!accepted) {
     return false;
   }
+  complete_rsp(rsp);
   return true;
 }
 
@@ -259,13 +246,11 @@ bool TmRingInf::issue_cmd_to_ring(PldCmd cmd, p_tm_pld_t pld) {
   pld->ring_traffic_class = static_cast<uint32_t>(pld->cmd);
   prepare_request_metadata(pld, cmd);
 
-  auto router_inf = cmd == PldCmd::WR_DAT ? router_wr_dat_inf_ : router_req_inf_;
-
   if (cmd != PldCmd::WR_DAT && !can_reserve_master_osd(cmd)) {
     return false;
   }
 
-  if (router_inf->send(pld)) {
+  if (router_inf_->send(tm_ring_packet_channel(cmd), pld)) {
     if (cmd == PldCmd::RD) {
       rd_outstanding_++;
     } else if (cmd == PldCmd::WR) {
@@ -293,12 +278,16 @@ bool TmRingInf::accept_rd_rsp(p_tm_pld_t rsp) {
     return true;
   }
 
-  auto q = rd_rsp_qs_[rsp->ring_rsp_lane];
-  q->push_back(rsp);
-  return true;
+  return bus_inf_->send(response_channel(PldCmd::RD_RSP, rsp->ring_rsp_lane),
+                        rsp);
 }
 
 bool TmRingInf::accept_wr_req_rsp(p_tm_pld_t rsp) {
+  if (wr_data_->full() ||
+      pending_writes_.find(rsp->gid) == pending_writes_.end()) {
+    return false;
+  }
+
   auto wr_dat = make_write_data(rsp);
 
   if (tm_pld_target_id(rsp) != tm_pld_target_id(wr_dat)) {
@@ -313,6 +302,9 @@ bool TmRingInf::accept_wr_dat_rsp(p_tm_pld_t rsp) {
   if (retire_write_response(rsp)) {
     return true;
   }
+  if (wr_dat_rsp_q_->full()) {
+    return false;
+  }
   // otherwise, enqueue the write response for the master to read
   pending_writes_.erase(rsp->gid);
   wr_dat_rsp_q_->push_back(rsp);
@@ -320,10 +312,13 @@ bool TmRingInf::accept_wr_dat_rsp(p_tm_pld_t rsp) {
 }
 
 uint32_t TmRingInf::response_channel(PldCmd cmd, uint32_t lane) const {
-  if (cmd == PldCmd::RD) {
+  if (cmd == PldCmd::RD_RSP) {
     return tm_ring_rd_rsp_bus_channel(lane);
   }
-  return tm_ring_cmd_bus_channel(cmd);
+  if (cmd == PldCmd::WR_RSP) {
+    return tm_ring_cmd_bus_channel(PldCmd::WR);
+  }
+  return tm_ring_cmd_bus_channel(PldCmd::WR_DAT);
 }
 
 void TmRingInf::prepare_request_metadata(p_tm_pld_t pld, PldCmd cmd) {
@@ -341,6 +336,39 @@ bool TmRingInf::can_reserve_master_osd(PldCmd cmd) const {
     return wr_outstanding_ < cfg_->master_wr_osd;
   }
   return true;
+}
+
+void TmRingInf::complete_rsp(p_tm_pld_t rsp) {
+  const uint32_t target_id = tm_pld_target_id(rsp);
+  auto cmd = static_cast<PldCmd>(rsp->ring_traffic_class);
+
+  if (cmd == PldCmd::WR_RSP) {
+    return;
+  }
+
+  if (cmd == PldCmd::RSP) {
+    release_write_osd();
+    flow_ctrl_->release_target_credit(target_id,
+                                      tm_ring_cmd_to_req(PldCmd::WR_DAT));
+    return;
+  }
+
+  auto key = tm_pld_txn_key(rsp);
+  auto& rd_state = rd_rsp_states_[key];
+  if (rd_state.rsp_expected == 1 && tm_pld_rsp_count(rsp) > 1) {
+    rd_state.rsp_expected = tm_pld_rsp_count(rsp);
+  }
+  rd_state.rsp_seen++;
+
+  if (!rd_state.slot_released) {
+    flow_ctrl_->release_target_credit(target_id, tm_ring_cmd_to_req(PldCmd::RD));
+    rd_state.slot_released = true;
+  }
+
+  if (rd_state.rsp_seen >= rd_state.rsp_expected) {
+    release_read_osd();
+    rd_rsp_states_.erase(key);
+  }
 }
 
 

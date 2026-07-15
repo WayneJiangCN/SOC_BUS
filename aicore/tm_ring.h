@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 
-#include <array>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -71,8 +70,6 @@ class TmRingFabric : public tm_engine::TmModule
     virtual bool canSendRdReq(uint32_t master_port);
     virtual bool canSendWrReq(uint32_t master_port);
 
-    void complete_master_response(p_tm_pld_t pld);
-
   protected:
     tm_engine::p_tm_clk_t clk_ = nullptr;
     p_tm_ring_cfg_t cfg_ = nullptr;
@@ -82,8 +79,6 @@ class TmRingFabric : public tm_engine::TmModule
     std::unordered_map<uint64_t, p_tm_ring_link_t> links_;
     std::vector<p_tm_ring_target_port_t> target_ports_;
 
-    std::unordered_map<uint64_t, TmRingRdRspState> rd_rsp_states_;
-
     uint32_t ring_router_count_ = 0;
     uint32_t ring_link_latency_ = 1;
 
@@ -91,16 +86,25 @@ class TmRingFabric : public tm_engine::TmModule
     std::shared_ptr<TmBusFlowCtrl> flow_ctrl_;
 
   protected:
-    p_tm_com_inf_t get_router_req_inf(uint32_t router_id,
-                                       TmRingPortDir in_dir,
-                                       PldCmd cmd) const;
-    p_tm_com_inf_t get_router_rd_rsp_inf(uint32_t router_id,
-                                          TmRingPortDir in_dir,
-                                          uint32_t lane) const;
-    p_tm_com_inf_t get_router_wr_req_rsp_inf(uint32_t router_id,
-                                              TmRingPortDir in_dir) const;
-    p_tm_com_inf_t get_router_wr_dat_rsp_inf(uint32_t router_id,
-                                              TmRingPortDir in_dir) const;
+    // Build stages used by config().
+    void init_topology_and_flow_ctrl();
+    void clear_components();
+    void create_master_nius();
+    void create_target_ports();
+    void create_routers();
+    void create_links();
+    void create_link(uint32_t router_id, TmRingPortDir out_dir);
+
+    // Wiring stages used by config() and attach APIs.
+    void bind_master_nius();
+    void attach_routers();
+    void attach_links();
+    void bind_target_ports();
+    void bind_master_niu(uint32_t idx, p_tm_ring_inf_t inf);
+
+    // Shared lookup helpers.
+    p_tm_com_inf_t get_router_port_inf(uint32_t router_id,
+                                        TmRingPortDir in_dir) const;
 
     p_tm_ring_link_t get_ring_link(uint32_t src_router_id,
                                    TmRingPortDir src_dir,
@@ -109,8 +113,6 @@ class TmRingFabric : public tm_engine::TmModule
     uint64_t make_link_key(uint32_t src_router_id, TmRingPortDir src_dir,
                            uint32_t dst_router_id, TmRingPortDir dst_dir) const;
 
-    uint64_t make_txn_key(uint32_t mst_id, uint32_t gid) const;
-    uint64_t make_txn_key(p_tm_pld_t pld) const;
 };
 
 using tm_ring_fabric_t = TmRingFabric;
