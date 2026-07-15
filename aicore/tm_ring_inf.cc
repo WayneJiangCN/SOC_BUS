@@ -192,6 +192,9 @@ void TmRingInf::recv_cmd(PldCmd cmd_type) {
     if (cmd_type == PldCmd::WR_DAT) {
       pending_writes_[cmd->gid] = cmd;
     } else {
+      if (q->full()) {
+        return;
+      }
       q->push_back(cmd);
       if (cmd_type == PldCmd::WR) {
         pending_writes_[cmd->gid] = cmd;

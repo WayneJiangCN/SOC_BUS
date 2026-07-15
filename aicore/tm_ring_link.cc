@@ -8,8 +8,8 @@ using namespace tm_engine;
 
 TmRingLink::TmRingLink() {}
 
-TmRingLink::TmRingLink(const std::string& name,
-                       p_tm_clk_t clk, p_tm_ring_cfg_t cfg, uint32_t latency,
+TmRingLink::TmRingLink(const std::string& name, p_tm_clk_t clk,
+                       p_tm_ring_cfg_t cfg, uint32_t latency,
                        uint32_t dst_router, TmRingPortDir dst_dir)
     : TmModule(name) {
   config(name, clk, cfg, latency, dst_router, dst_dir);
@@ -29,7 +29,7 @@ void TmRingLink::config(const std::string& name, p_tm_clk_t clk,
   dst_router_ = dst_router;
   dst_dir_ = dst_dir;
 
-  ready_packets_.clear();
+  inflight_packets_.clear();
   next_send_time_.assign(tm_ring_subnet_count(), 0);
   inflight_count_.assign(tm_ring_subnet_count(), 0);
   stats_.assign(tm_ring_subnet_count(), LinkSubnetStats());
@@ -39,14 +39,21 @@ void TmRingLink::config(const std::string& name, p_tm_clk_t clk,
   max_inflight_[tm_ring_subnet_index(TmRingSubnet::RSP)] =
       std::max<uint32_t>(1, cfg_->ring_rsp_link_max_inflight);
 
+  src_inf_ = tm_make_com_inf(
+      clk_, name_ + "_src_inf",
+      std::max<uint32_t>(
+          1, std::max(cfg_->ring_req_fifo_depth, cfg_->ring_rsp_fifo_depth)));
+  src_inf_->set_chan_num(tm_ring_packet_channel_count(cfg_->rd_rsp_port_num));
+  tm_sensitive(TM_MAKE_CPROC(&TmRingLink::recv_packets), src_inf_->vld);
+
   auto drain_proc = TM_MAKE_CPROC(&TmRingLink::drain_ready_packets);
-  ready_packets_.push_back(tm_make_que<p_tm_pld_t>(
+  inflight_packets_.push_back(tm_make_que<p_tm_pld_t>(
       clk_, name_ + "_req_ready_packets",
       std::max<uint32_t>(1, cfg_->ring_req_fifo_depth), latency_));
-  ready_packets_.push_back(tm_make_que<p_tm_pld_t>(
+  inflight_packets_.push_back(tm_make_que<p_tm_pld_t>(
       clk_, name_ + "_rsp_ready_packets",
       std::max<uint32_t>(1, cfg_->ring_rsp_fifo_depth), latency_));
-  for (auto& q : ready_packets_) {
+  for (auto& q : inflight_packets_) {
     tm_sensitive(drain_proc, q->vld);
   }
 
@@ -54,17 +61,18 @@ void TmRingLink::config(const std::string& name, p_tm_clk_t clk,
 }
 
 void TmRingLink::reset() {
+  src_inf_->reset();
   std::fill(next_send_time_.begin(), next_send_time_.end(), 0);
   std::fill(inflight_count_.begin(), inflight_count_.end(), 0);
   std::fill(stats_.begin(), stats_.end(), LinkSubnetStats());
-  for (auto& q : ready_packets_) {
+  for (auto& q : inflight_packets_) {
     q->clear();
   }
 }
 
 bool TmRingLink::idle() const {
-  bool ret = true;
-  for (auto& q : ready_packets_) {
+  bool ret = src_inf_->idle();
+  for (auto& q : inflight_packets_) {
     ret = ret && q->empty();
   }
   for (auto cnt : inflight_count_) {
@@ -75,17 +83,17 @@ bool TmRingLink::idle() const {
 
 bool TmRingLink::can_send(p_tm_pld_t pld) const {
   uint32_t idx = pld->ring_subnet;
-  return time() >= next_send_time_[idx] && !ready_packets_[idx]->full() &&
+  return time() >= next_send_time_[idx] && !inflight_packets_[idx]->full() &&
          inflight_count_[idx] < max_inflight_[idx];
 }
 
-void TmRingLink::enqueue(p_tm_pld_t pld) {
+void TmRingLink::enqueue_ready_packet(p_tm_pld_t pld) {
   uint32_t idx = pld->ring_subnet;
   uint32_t bytes = packet_bytes(pld);
   uint32_t serialization_cycles =
       std::max<uint32_t>(1, (bytes + width_bytes_ - 1) / width_bytes_);
 
-  ready_packets_[idx]->push_back(pld);
+  inflight_packets_[idx]->push_back(pld);
   inflight_count_[idx]++;
   stats_[idx].packets++;
   stats_[idx].bytes += bytes;
@@ -118,18 +126,35 @@ const TmRingLink::LinkSubnetStats& TmRingLink::subnet_stats(
   return stats_[tm_ring_subnet_index(subnet)];
 }
 
-void TmRingLink::attach(p_tm_com_inf_t dst_inf) {
-  dst_inf_ = dst_inf;
-}
+void TmRingLink::attach(p_tm_com_inf_t dst_inf) { dst_inf_ = dst_inf; }
+
+p_tm_com_inf_t TmRingLink::src_inf() const { return src_inf_; }
 
 uint32_t TmRingLink::dst_channel(p_tm_pld_t pld) const {
   return tm_ring_packet_channel(static_cast<PldCmd>(pld->ring_traffic_class),
                                 pld->ring_rsp_lane);
 }
 
+void TmRingLink::recv_packets() {
+  uint32_t chan_num = tm_ring_packet_channel_count(cfg_->rd_rsp_port_num);
+  for (uint32_t chan = 0; chan < chan_num; ++chan) {
+    if (!src_inf_->valid(chan)) {
+      continue;
+    }
+
+    auto pld = src_inf_->get_pld(chan);
+    if (!can_send(pld)) {
+      continue;
+    }
+
+    enqueue_ready_packet(pld);
+    src_inf_->pop_pld(chan);
+  }
+}
+
 void TmRingLink::drain_ready_packets() {
-  for (uint32_t idx = 0; idx < ready_packets_.size(); ++idx) {
-    auto& q = ready_packets_[idx];
+  for (uint32_t idx = 0; idx < inflight_packets_.size(); ++idx) {
+    auto& q = inflight_packets_[idx];
     while (q->valid() && !q->empty()) {
       auto pld = q->front();
       if (pld == nullptr) {

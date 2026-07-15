@@ -37,14 +37,16 @@ class TmRingLink : public tm_engine::TmModule {
   bool idle() const;
 
   bool can_send(p_tm_pld_t pld) const;
-  void enqueue(p_tm_pld_t pld);
   uint32_t packet_bytes(p_tm_pld_t pld) const;
   const LinkSubnetStats& subnet_stats(TmRingSubnet subnet) const;
   void attach(p_tm_com_inf_t dst_inf);
+  p_tm_com_inf_t src_inf() const;
   uint32_t dst_router() const;
   TmRingPortDir dst_dir() const;
 
  private:
+  void recv_packets();
+  void enqueue_ready_packet(p_tm_pld_t pld);
   void drain_ready_packets();
   uint32_t dst_channel(p_tm_pld_t pld) const;
 
@@ -60,6 +62,7 @@ class TmRingLink : public tm_engine::TmModule {
   std::vector<tm_engine::tm_time_t> next_send_time_;
   std::vector<p_tm_com_que_t> ready_packets_;
   std::vector<LinkSubnetStats> stats_;
+  p_tm_com_inf_t src_inf_ = nullptr;
   p_tm_com_inf_t dst_inf_ = nullptr;
 };
 
