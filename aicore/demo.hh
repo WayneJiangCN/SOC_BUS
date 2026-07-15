@@ -1,9 +1,12 @@
  #ifndef _PEM_DEMO_H_
 #define _PEM_DEMO_H_
 
-#include <functional>
-#include <unordered_map>
 #include <array>
+#include <cstring>
+#include <functional>
+#include <queue>
+#include <unordered_map>
+#include <vector>
 #include "tm_engine.h"
 #include "tm_que.h"
 #include "tm_inf.h"
@@ -92,7 +95,7 @@ public:
     p_tm_com_inf_t write_port_ = nullptr;
 
     p_tm_que_t<p_isa_t> instr_que_ = nullptr;
-    
+
     p_tm_que_t<p_demo_uop_t> uop_que_ = nullptr;
     p_tm_que_t<p_demo_uop_t> pipe_que_ = nullptr;
 

@@ -9,10 +9,21 @@
 
 #include "tm_clock.h"
 #include "tm_engine.h"
+#include "tm_pld.h"
 #include "tm_ring_link.h"
 #include "tm_ring_topology.h"
 #include "tm_ring_types.h"
 #include "tm_que.h"
+
+struct TmRingCandidate
+{
+    p_tm_pld_t pld = nullptr;
+    TmRingPortDir in_dir = TmRingPortDir::LOCAL;
+    TmRingPortDir out_dir = TmRingPortDir::LOCAL;
+    uint32_t slot_id = 0;
+};
+using tm_ring_candidate_t = TmRingCandidate;
+using p_tm_ring_candidate_t = std::shared_ptr<tm_ring_candidate_t>;
 
 class TmRingRouter : public tm_engine::TmModule
 {
@@ -45,14 +56,12 @@ class TmRingRouter : public tm_engine::TmModule
     void advance_east_input(TmRingSubnet subnet);
     void advance_west_input(TmRingSubnet subnet);
     void advance_input(TmRingPortDir in_dir, TmRingSubnet subnet);
-    p_tm_pld_t select_input_candidate(TmRingPortDir in_dir,
-                                      TmRingSubnet subnet);
-    void commit_packet(TmRingSubnet subnet, TmRingPortDir out_dir,
-                       p_tm_pld_t pld);
-    uint32_t rr_slot(p_tm_pld_t pld) const;
-    void resolve_route(p_tm_pld_t pld);
-    bool route_ready(p_tm_pld_t pld);
-    bool route_packet(p_tm_pld_t pld);
+    p_tm_ring_candidate_t select_input_candidate(TmRingPortDir in_dir,
+                                                 TmRingSubnet subnet);
+    void commit_packet(TmRingSubnet subnet, p_tm_ring_candidate_t candidate);
+    TmRingPortDir resolve_route(p_tm_pld_t pld);
+    bool route_ready(p_tm_ring_candidate_t candidate);
+    bool route_packet(p_tm_ring_candidate_t candidate);
     bool local_ready(p_tm_pld_t pld);
     bool route_local(p_tm_pld_t pld);
     p_tm_com_inf_t local_inf(p_tm_pld_t pld) const;

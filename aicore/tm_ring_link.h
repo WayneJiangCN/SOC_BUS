@@ -60,7 +60,7 @@ class TmRingLink : public tm_engine::TmModule {
   std::vector<uint32_t> max_inflight_;
   std::vector<uint32_t> inflight_count_;
   std::vector<tm_engine::tm_time_t> next_send_time_;
-  std::vector<p_tm_com_que_t> ready_packets_;
+  std::vector<p_tm_com_que_t> inflight_packets_;
   std::vector<LinkSubnetStats> stats_;
   p_tm_com_inf_t src_inf_ = nullptr;
   p_tm_com_inf_t dst_inf_ = nullptr;

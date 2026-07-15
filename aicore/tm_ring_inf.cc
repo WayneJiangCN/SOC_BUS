@@ -186,11 +186,14 @@ void TmRingInf::recv_cmd(PldCmd cmd_type) {
   uint32_t chan = tm_ring_cmd_bus_channel(cmd_type);
   auto q = req_queue(cmd_type);
 
-  if (bus_inf_->valid(chan) ) {
+  if (bus_inf_->valid(chan)) {
     auto cmd = bus_inf_->get_pld(chan);
     cmd->mst_id = inf_id_;
     if (cmd_type == PldCmd::WR_DAT) {
-      pending_writes_[cmd->gid] = cmd;
+      if (q->full()) {
+        return;
+      }
+      q->push_back(cmd);
     } else {
       if (q->full()) {
         return;
@@ -394,7 +397,31 @@ p_tm_pld_t TmRingInf::make_write_data(p_tm_pld_t grant) {
     assert(false && "TmRingInf missing write data");
     return nullptr;
   }
-  return it->second;
+
+  auto original = it->second;
+  auto wr_dat =
+      tm_make_pld(PldCmd::WR_DAT, original->addr, original->size,
+                  original->data);
+
+  wr_dat->gid = original->gid;
+  wr_dat->mst_id = original->mst_id;
+  wr_dat->slv_id = original->slv_id;
+  wr_dat->mst_addr = original->mst_addr;
+  wr_dat->slv_addr = original->slv_addr;
+  wr_dat->type_id = static_cast<uint32_t>(PldCmd::WR_DAT);
+  wr_dat->rsp = pld_rsp_t::UNDEF;
+
+  wr_dat->buf_u8 = original->buf_u8;
+  wr_dat->buf_u32 = original->buf_u32;
+  wr_dat->buf_u64 = original->buf_u64;
+  wr_dat->chan = original->chan;
+  wr_dat->latency = original->latency;
+  wr_dat->rsp_count = original->rsp_count;
+  wr_dat->tnx_id = grant->tnx_id;
+  wr_dat->tag_id = grant->tag_id;
+  wr_dat->smmu_tnx_id = original->smmu_tnx_id;
+
+  return wr_dat;
 }
 
 bool TmRingInf::retire_read_response(p_tm_pld_t rsp) {

@@ -263,30 +263,30 @@ p_tm_com_inf_t TmRingRouter::output_inf(TmRingPortDir out_dir) const {
   return link_out_infs_[ring_port_slot(out_dir)];
 }
 
-void TmRingRouter::resolve_route(p_tm_pld_t pld) {
+TmRingPortDir TmRingRouter::resolve_route(p_tm_pld_t pld) {
   auto cmd = static_cast<PldCmd>(pld->ring_traffic_class);
   bool is_request =
       cmd == PldCmd::RD || cmd == PldCmd::WR || cmd == PldCmd::WR_DAT;
   uint32_t destination =
       is_request ? tm_pld_dst_node(pld) : tm_pld_src_node(pld);
-  auto out_dir = router_id_ == destination
-                     ? TmRingPortDir::LOCAL
-                     : topology_->route_direction(router_id_, destination);
-  pld->ring_out_dir = tm_ring_port_index(out_dir);
+  return router_id_ == destination
+             ? TmRingPortDir::LOCAL
+             : topology_->route_direction(router_id_, destination);
 }
 
-bool TmRingRouter::route_ready(p_tm_pld_t pld) {
-  auto out_dir = static_cast<TmRingPortDir>(pld->ring_out_dir);
+bool TmRingRouter::route_ready(p_tm_ring_candidate_t candidate) {
+  auto out_dir = candidate->out_dir;
   if (out_dir == TmRingPortDir::LOCAL) {
-    return local_ready(pld);
+    return local_ready(candidate->pld);
   }
 
   auto link = output_link(out_dir);
-  return link != nullptr && link->can_send(pld);
+  return link != nullptr && link->can_send(candidate->pld);
 }
 
-bool TmRingRouter::route_packet(p_tm_pld_t pld) {
-  auto out_dir = static_cast<TmRingPortDir>(pld->ring_out_dir);
+bool TmRingRouter::route_packet(p_tm_ring_candidate_t candidate) {
+  auto pld = candidate->pld;
+  auto out_dir = candidate->out_dir;
   if (out_dir == TmRingPortDir::LOCAL) {
     return route_local(pld);
   }
@@ -339,14 +339,9 @@ uint32_t TmRingRouter::local_channel(p_tm_pld_t pld) const {
   return tm_ring_packet_channel(static_cast<PldCmd>(pld->ring_traffic_class),
                                 pld->ring_rsp_lane);
 }
-/*
-REQ subnet:
-RD > WR > WR_DAT
-RSP subnet:
-RSP > RD_RSP > WR_RSP > RD_RSP lane1 > lane2...
-*/
-p_tm_pld_t TmRingRouter::select_input_candidate(TmRingPortDir in_dir,
-                                                TmRingSubnet subnet) {
+p_tm_ring_candidate_t TmRingRouter::select_input_candidate(TmRingPortDir in_dir,
+                                                           TmRingSubnet subnet) {
+  auto candidate = std::make_shared<tm_ring_candidate_t>();
   uint32_t class_num = traffic_slot_count();
   for (uint32_t slot_class = 0; slot_class < class_num; ++slot_class) {
     uint32_t cls;
@@ -370,17 +365,17 @@ p_tm_pld_t TmRingRouter::select_input_candidate(TmRingPortDir in_dir,
     }
     auto pld = inf->get_pld(chan);
 
-    pld->ring_in_dir = tm_ring_port_index(in_dir);
-    pld->ring_subnet = tm_ring_subnet_index(subnet);
-    pld->ring_traffic_class = cls;
-    pld->ring_rsp_lane = lane;
+    candidate->pld = pld;
+    candidate->in_dir = in_dir;
+    candidate->out_dir = resolve_route(pld);
+    candidate->slot_id = tm_ring_port_index(in_dir) * class_num + slot_class;
 
-    resolve_route(pld);
-    if (!route_ready(pld)) {
+    if (!route_ready(candidate)) {
+      candidate->pld = nullptr;
       continue;
     }
 
-    return pld;
+    return candidate;
   }
 
   return nullptr;
@@ -404,32 +399,20 @@ void TmRingRouter::advance_input(TmRingPortDir in_dir, TmRingSubnet subnet) {
     return;
   }
 
-  auto out_dir = static_cast<TmRingPortDir>(winner->ring_out_dir);
   if (route_packet(winner)) {
-    commit_packet(subnet, out_dir, winner);
+    commit_packet(subnet, winner);
   }
 }
 
-void TmRingRouter::commit_packet(TmRingSubnet subnet, TmRingPortDir out_dir,
-                                 p_tm_pld_t pld) {
+void TmRingRouter::commit_packet(TmRingSubnet subnet,
+                                 p_tm_ring_candidate_t candidate) {
+  auto pld = candidate->pld;
   uint32_t subnet_idx = tm_ring_subnet_index(subnet);
   uint32_t out_idx =
-      subnet_idx * tm_ring_port_count() + tm_ring_port_index(out_dir);
-  output_rr_ptr_[out_idx] = rr_slot(pld);
+      subnet_idx * tm_ring_port_count() + tm_ring_port_index(candidate->out_dir);
+  output_rr_ptr_[out_idx] = candidate->slot_id;
 
-  auto in_dir = static_cast<TmRingPortDir>(pld->ring_in_dir);
-  auto in_inf = inf_for_class(in_dir, pld->ring_traffic_class,
+  auto in_inf = inf_for_class(candidate->in_dir, pld->ring_traffic_class,
                               pld->ring_rsp_lane);
   in_inf->pop_pld(packet_channel(pld->ring_traffic_class, pld->ring_rsp_lane));
-}
-
-uint32_t TmRingRouter::rr_slot(p_tm_pld_t pld) const {
-  uint32_t slot_class =
-      pld->ring_traffic_class == cmd_class(PldCmd::RD_RSP)
-          ? (pld->ring_rsp_lane == 0
-                 ? cmd_class(PldCmd::RD_RSP)
-                 : tm_ring_base_packet_channel_count() + pld->ring_rsp_lane -
-                       1)
-          : pld->ring_traffic_class;
-  return pld->ring_in_dir * traffic_slot_count() + slot_class;
 }

@@ -69,8 +69,6 @@ public:
     uint32_t tnx_id = 0;
     uint32_t tag_id = 0;
     uint32_t smmu_tnx_id = 0;
-    uint32_t ring_in_dir = 0;
-    uint32_t ring_out_dir = 0;
     uint32_t ring_subnet = 0;
     uint32_t ring_traffic_class = 0;
     uint32_t ring_rsp_lane = 0;
