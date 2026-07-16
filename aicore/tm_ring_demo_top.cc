@@ -70,13 +70,19 @@ make_demo_ring_cfg(const p_tm_mem_cfg_t& ddr_cfg)
     cfg->num_targets = 1;
     cfg->rd_rsp_port_num = 2;
 
-    cfg->master_inf_depth = 16;
-    cfg->target_inf_depth = ddr_cfg->rw_inf_buf_size;
+    cfg->master_inf_depth = 2;
+    cfg->target_inf_depth = 2;
+    cfg->ring_router_input_depth = 2;
+    cfg->ring_link_inf_depth = 2;
+
+    cfg->master_rd_cmd_fifo_depth = 16;
+    cfg->master_wr_cmd_fifo_depth = 16;
+    cfg->master_wr_dat_fifo_depth = 16;
+    cfg->master_wr_rsp_fifo_depth = 16;
     cfg->master_rd_osd = 16;
     cfg->master_wr_osd = 16;
     cfg->global_osd = 64;
 
-    cfg->ring_router_input_depth = 2;
     cfg->ring_req_fifo_depth = 8;
     cfg->ring_rsp_fifo_depth = 8;
     cfg->ring_link_latency = 1;

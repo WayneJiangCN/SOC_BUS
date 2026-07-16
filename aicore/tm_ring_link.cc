@@ -46,16 +46,12 @@ void TmRingLink::config(const std::string& name, p_tm_clk_t clk,
       std::max<uint32_t>(1, cfg_->ring_rsp_link_max_inflight);
 
   src_inf_ = tm_make_com_inf(
-      clk_, name_ + "_src_inf",
-      std::max<uint32_t>(
-          1, std::max(cfg_->ring_req_fifo_depth, cfg_->ring_rsp_fifo_depth)));
+      clk_, name_ + "_src_inf", cfg_->ring_link_inf_depth);
   src_inf_->set_chan_num(tm_ring_packet_channel_count(cfg_->rd_rsp_port_num));
   tm_sensitive(TM_MAKE_CPROC(&TmRingLink::recv_packets), src_inf_->vld);
 
   dst_out_inf_ = tm_make_com_inf(
-      clk_, name_ + "_dst_out_inf",
-      std::max<uint32_t>(
-          1, std::max(cfg_->ring_req_fifo_depth, cfg_->ring_rsp_fifo_depth)));
+      clk_, name_ + "_dst_out_inf", cfg_->ring_link_inf_depth);
   dst_out_inf_->set_chan_num(
       tm_ring_packet_channel_count(cfg_->rd_rsp_port_num));
 

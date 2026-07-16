@@ -30,7 +30,8 @@ void TmRingInf::config() {
                          tm_ring_rd_rsp_bus_channel(0) + cfg_->rd_rsp_port_num);
 
   bus_inf_ =
-      tm_make_com_inf(clk_, this->name() + "_bus_inf", cfg_->master_inf_depth);
+      tm_make_com_inf(clk_, this->name() + "_bus_inf",
+                      cfg_->master_inf_depth);
   bus_inf_->set_chan_num(chan_num);
   tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_rd_cmd), bus_inf_->vld);
   tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_wr_cmd), bus_inf_->vld);
@@ -43,17 +44,20 @@ void TmRingInf::config() {
                router_inf_->vld);
 
   rd_cmds_ =
-      tm_make_com_que(clk_, this->name() + "_rd_cmds", cfg_->master_inf_depth);
+      tm_make_com_que(clk_, this->name() + "_rd_cmds",
+                      cfg_->master_rd_cmd_fifo_depth);
   wr_cmds_ =
-      tm_make_com_que(clk_, this->name() + "_wr_cmds", cfg_->master_inf_depth);
+      tm_make_com_que(clk_, this->name() + "_wr_cmds",
+                      cfg_->master_wr_cmd_fifo_depth);
   wr_data_ =
-      tm_make_com_que(clk_, this->name() + "_wr_data", cfg_->master_inf_depth);
+      tm_make_com_que(clk_, this->name() + "_wr_data",
+                      cfg_->master_wr_dat_fifo_depth);
   tm_sensitive(TM_MAKE_CPROC(&TmRingInf::send_rd_cmd), rd_cmds_->vld);
   tm_sensitive(TM_MAKE_CPROC(&TmRingInf::send_wr_cmd), wr_cmds_->vld);
   tm_sensitive(TM_MAKE_CPROC(&TmRingInf::send_wr_dat), wr_data_->vld);
 
   wr_dat_rsp_q_ = tm_make_com_que(clk_, this->name() + "_wr_dat_rsp_q",
-                                  cfg_->master_inf_depth);
+                                  cfg_->master_wr_rsp_fifo_depth);
   tm_sensitive(TM_MAKE_CPROC(&TmRingInf::send_wr_dat_rsp), wr_dat_rsp_q_->vld);
 
   reset();
