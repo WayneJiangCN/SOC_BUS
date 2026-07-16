@@ -1,5 +1,7 @@
 #include "tm_ring_target_port.h"
 
+#include <algorithm>
+
 #include "tm_bus_flow_ctrl.h"
 #include "tm_pld.h"
 
@@ -37,8 +39,9 @@ TmRingTargetPort::config(const std::string& name, p_tm_clk_t clk,
     PEM_LOG_INFO(log_, "[{0:d}] config rd_rsp_ports:{1:d}",
                  time(), rd_rsp_port_num_);
 
-    uint32_t chan_num =
-        tm_ring_rd_rsp_bus_channel(0) + rd_rsp_port_num_;
+    uint32_t chan_num = std::max<uint32_t>(
+        tm_ring_cmd_bus_channel(PldCmd::WR_DAT) + 1,
+        tm_ring_rd_rsp_bus_channel(0) + rd_rsp_port_num_);
     inf_ = tm_make_com_inf(clk_, name_ + "_inf", inf_depth);
     inf_->set_chan_num(chan_num);
     tm_sensitive(TM_MAKE_CPROC(&TmRingTargetPort::recv_rd_cmd_rsp), inf_->vld);
