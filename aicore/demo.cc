@@ -117,17 +117,17 @@ private:
     uint32_t current_uop_count_ = 0;
 
     std::unordered_map<uint64_t, PairEntry> pair_buffer_;
-    uint32_t max_pair_entries_ = 4;
+    uint32_t max_pair_entries_ = TOTAL_UOP_COUNT;
     static constexpr uint32_t WRITE_BUF_POOL_SIZE = 64;
     uint8_t write_buf_pool_[WRITE_BUF_POOL_SIZE][4];
     std::queue<uint32_t> free_write_buf_ids_;
 
-    bool handle_read_response(uint32_t req_id, uint64_t addr, uint32_t size);
+    bool handle_read_response(p_tm_pld_t rd_resp);
     uint32_t allocate_write_buf();
     void release_write_buf(uint32_t id);
 };
 
-#endif #include "pem_trdemo.h"
+#endif
 
 //----------------------------------------------------------------------------------------
 DemoModule::DemoModule(const std::string &name, tm_engine::p_tm_clk_t clk)
@@ -186,11 +186,27 @@ void DemoModule::build()
 
 bool DemoModule::idle()
 {
-    return instr_que_->empty();
+    return instr_que_->empty() && uop_que_->empty() && pipe_que_->empty() &&
+           pair_buffer_.empty() &&
+           free_write_buf_ids_.size() == WRITE_BUF_POOL_SIZE &&
+           read_port_->idle() && write_port_->idle();
 }
 
 void DemoModule::reset()
 {
+    current_uop_count_ = 0;
+    pair_buffer_.clear();
+    while (!free_write_buf_ids_.empty())
+    {
+        free_write_buf_ids_.pop();
+    }
+    for (uint32_t i = 0; i < WRITE_BUF_POOL_SIZE; ++i)
+    {
+        free_write_buf_ids_.push(i);
+    }
+    instr_que_->clear();
+    uop_que_->clear();
+    pipe_que_->clear();
 }
 
 void DemoModule::gen_uop()
@@ -227,6 +243,8 @@ void DemoModule::read_mem()
         return;
     auto uop = uop_que_->front();
     auto rd_pld = tm_make_pld(PldCmd::RD, uop->addr, uop->size);
+    rd_pld->buf_u8 = make_shared<vector<uint8_t>>(uop->size, 0);
+    rd_pld->data = rd_pld->buf_u8->data();
     if (read_port_->send(rd_pld))
     {
         uop_que_->pop_front();
@@ -248,19 +266,27 @@ void DemoModule::recv_rsp()
         return;
 
     uint32_t req_id = (rd_resp->addr - START_ADDR) / BAND_WIDTH;
-    bool success = handle_read_response(req_id, rd_resp->addr, rd_resp->size);
+    bool success = handle_read_response(rd_resp);
     if (success)
         read_port_->pop_pld();
     else
         std::cout << "WARNING: 读响应处理失败，req_id=" << req_id << std::endl;
 }
-bool DemoModule::handle_read_response(uint32_t req_id, uint64_t addr, uint32_t size)
+bool DemoModule::handle_read_response(p_tm_pld_t rd_resp)
 {
+    uint64_t addr = rd_resp->addr;
+    uint32_t size = rd_resp->size;
+    uint32_t req_id = (addr - START_ADDR) / BAND_WIDTH;
     uint64_t wr_addr = END_ADDR + (req_id / 2) * sizeof(uint32_t);
     PEM_LOG_INFO(log_, "Pair[{0:x}] req_id:{1:d},pair_buffer_.size():{2:d}", wr_addr, req_id, pair_buffer_.size());
     PEM_LOG_INFO(rd_log_, "time:{0:d},Pair[{1:x}] 到达 (req_id={2:d})", time(), wr_addr, req_id);
+    if (rd_resp->data == nullptr)
+    {
+        PEM_LOG_ERROR(rd_log_, "RD response data is nullptr, req_id={0:d}", req_id);
+        return false;
+    }
     std::vector<uint8_t> ptr(size);
-    biu_->pv_read(addr, size, ptr.data(), 0);
+    memcpy(ptr.data(), rd_resp->data, size);
     auto it = pair_buffer_.find(wr_addr);
 
     if (it == pair_buffer_.end())
@@ -361,8 +387,7 @@ void DemoModule::wr_recv_rsp()
     uint32_t buf_id = wr_resp->tnx_id; // 取出之前存入的 ID
     release_write_buf(buf_id);
     PEM_LOG_INFO(wr_log_, "M4,time:{3:d},size : {0:d}, 地址=0x{1:x}, 数据={2:d}",
-                 wr_resp->size, wr_resp->addr, wr_resp->data[0], time());
-    biu_->pv_write(wr_resp->addr, wr_resp->size, wr_resp->data, 0, 0);
+                 wr_resp->size, wr_resp->addr, wr_resp->data == nullptr ? 0 : wr_resp->data[0], time());
 }
 
 uint32_t DemoModule::allocate_write_buf()
@@ -375,6 +400,8 @@ uint32_t DemoModule::allocate_write_buf()
 }
 void DemoModule::release_write_buf(uint32_t id)
 {
+    if (id >= WRITE_BUF_POOL_SIZE)
+        return;
     free_write_buf_ids_.push(id);
 }
 //--------------------------------------------------------------------------------------------

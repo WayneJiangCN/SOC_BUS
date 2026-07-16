@@ -115,12 +115,12 @@ private:
     uint32_t current_uop_count_ = 0;
 
     std::unordered_map<uint64_t, PairEntry> pair_buffer_;
-    uint32_t max_pair_entries_ = 4;
+    uint32_t max_pair_entries_ = TOTAL_UOP_COUNT;
     static constexpr uint32_t WRITE_BUF_POOL_SIZE = 64;
     uint8_t write_buf_pool_[WRITE_BUF_POOL_SIZE][4];
     std::queue<uint32_t> free_write_buf_ids_;
 
-    bool handle_read_response(uint32_t req_id, uint64_t addr, uint32_t size);
+    bool handle_read_response(p_tm_pld_t rd_resp);
     uint32_t allocate_write_buf();
     void release_write_buf(uint32_t id);
 };

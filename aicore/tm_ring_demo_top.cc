@@ -141,7 +141,6 @@ main(int argc, char** argv)
     auto biu = make_shared<pem_biu_t>(std::string("biu"), clk,
                                       demo_cfg->get_cfg_tab("BIU"));
     biu->build();
-    biu->attach(ddr);
 
     ring->attach_master(0, biu);
     ring->attach_target(0, ddr);
