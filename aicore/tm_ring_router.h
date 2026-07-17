@@ -68,7 +68,6 @@ class TmRingRouter : public tm_engine::TmModule
     p_tm_com_inf_t local_inf(p_tm_pld_t pld) const;
     uint32_t local_channel(p_tm_pld_t pld) const;
     p_tm_ring_link_t output_link(TmRingPortDir out_dir) const;
-    p_tm_com_inf_t output_inf(TmRingPortDir out_dir) const;
 
     uint32_t traffic_slot_count() const;
     void decode_slot(uint32_t slot_class, uint32_t& traffic_class,
@@ -83,7 +82,6 @@ class TmRingRouter : public tm_engine::TmModule
     p_tm_ring_cfg_t cfg_ = nullptr;
 
     std::vector<p_tm_com_inf_t> port_infs_;
-    std::vector<p_tm_com_inf_t> link_out_infs_;
 
     std::vector<uint32_t> output_rr_ptr_;
     uint32_t router_id_ = 0;

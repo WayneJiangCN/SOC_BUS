@@ -119,8 +119,6 @@ make_demo_ring_cfg(const p_tm_mem_cfg_t& ddr_cfg, const RingDemoCase& tc)
 
     cfg->master_inf_depth = 2;
     cfg->target_inf_depth = 2;
-    cfg->ring_router_input_depth = 2;
-    cfg->ring_link_inf_depth = 2;
 
     cfg->master_rd_cmd_fifo_depth = tc.small_buffers ? 2 : 16;
     cfg->master_wr_cmd_fifo_depth = tc.small_buffers ? 2 : 16;

@@ -101,6 +101,13 @@ inline constexpr uint32_t tm_ring_packet_channel_count(
   return tm_ring_base_packet_channel_count() + rd_rsp_port_num - 1;
 }
 
+inline p_tm_com_inf_t tm_ring_make_event_inf(tm_engine::p_tm_clk_t clk,
+                                             const std::string& name) {
+  // Ring-internal TmInf is only a valid/ready event boundary.
+  // Propagation latency is modeled by TmRingLink's tm_que delay.
+  return tm_make_com_inf(clk, 1, 0, 0, name);
+}
+
 inline constexpr TmRingPortDir tm_ring_opposite_dir(TmRingPortDir dir) {
   switch (dir) {
     case TmRingPortDir::EAST:
@@ -128,11 +135,6 @@ struct TmRingCfg {
   uint32_t master_inf_depth = 2;
   // Target 侧 TmInf 端口深度，语义同 master_inf_depth。
   uint32_t target_inf_depth = 2;
-  // Router 本地/链路端口 TmInf 深度，语义同 master_inf_depth。
-  uint32_t ring_router_input_depth = 2;
-  // Link 输入/输出 TmInf 深度，语义同 master_inf_depth。
-  uint32_t ring_link_inf_depth = 2;
-
   // Master NIU 内部读命令 FIFO 深度，是真正的 master 侧缓存资源。
   uint32_t master_rd_cmd_fifo_depth = 8;
   // Master NIU 内部写命令 FIFO 深度，是真正的 master 侧缓存资源。

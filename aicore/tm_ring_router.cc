@@ -43,30 +43,20 @@ void TmRingRouter::config(const std::string& name, p_tm_clk_t clk,
   PEM_LOG_INFO(log_, "[{0:d}] config", time());
 
   port_infs_.clear();
-  link_out_infs_.clear();
   local_master_infs_.clear();
   local_target_infs_.clear();
   uint32_t rr_init_slot = tm_ring_port_count() * traffic_slot_count() - 1;
   output_rr_ptr_.assign(tm_ring_port_count() * tm_ring_subnet_count(),
                         rr_init_slot);
-  uint32_t router_input_depth =
-      std::max<uint32_t>(1, cfg_->ring_router_input_depth);
   uint32_t chan_num = tm_ring_packet_channel_count(cfg_->rd_rsp_port_num);
 
   for (uint32_t port = 0; port < 2; ++port) {
     auto dir = ring_port_dir(port);
-    auto inf = tm_make_com_inf(clk_, name_ + "_port_inf_" +
-                                         std::to_string(tm_ring_port_index(dir)),
-                               router_input_depth);
+    auto inf = tm_ring_make_event_inf(
+        clk_, name_ + "_port_inf_" +
+                  std::to_string(tm_ring_port_index(dir)));
     inf->set_chan_num(chan_num);
     port_infs_.push_back(inf);
-
-    auto out_inf =
-        tm_make_com_inf(clk_, name_ + "_link_out_inf_" +
-                                  std::to_string(tm_ring_port_index(dir)),
-                        router_input_depth);
-    out_inf->set_chan_num(chan_num);
-    link_out_infs_.push_back(out_inf);
   }
 
   tm_sensitive(TM_MAKE_CPROC(&TmRingRouter::route_east_request),
@@ -83,9 +73,6 @@ void TmRingRouter::config(const std::string& name, p_tm_clk_t clk,
 
 void TmRingRouter::reset() {
   for (auto& inf : port_infs_) {
-    inf->reset();
-  }
-  for (auto& inf : link_out_infs_) {
     inf->reset();
   }
   for (auto& inf : local_master_infs_) {
@@ -108,9 +95,6 @@ bool TmRingRouter::idle() const {
   for (const auto& inf : port_infs_) {
     ret = ret && inf->idle();
   }
-  for (const auto& inf : link_out_infs_) {
-    ret = ret && inf->idle();
-  }
   for (const auto& inf : local_master_infs_) {
     ret = ret && (inf == nullptr || inf->idle());
   }
@@ -129,14 +113,10 @@ void TmRingRouter::attach(uint32_t router_id,
   east_link_ = east_link;
   west_link_ = west_link;
   if (east_link_ != nullptr) {
-    link_out_infs_[ring_port_slot(TmRingPortDir::EAST)]->connect(
-        east_link_->src_inf());
     PEM_LOG_INFO(log_, "[{0:d}] attach_east_link router:{1:d}",
                  time(), router_id_);
   }
   if (west_link_ != nullptr) {
-    link_out_infs_[ring_port_slot(TmRingPortDir::WEST)]->connect(
-        west_link_->src_inf());
     PEM_LOG_INFO(log_, "[{0:d}] attach_west_link router:{1:d}",
                  time(), router_id_);
   }
@@ -148,9 +128,8 @@ void TmRingRouter::bind_local_master(uint32_t master_port,
     local_master_infs_.resize(master_port + 1, nullptr);
   }
   if (local_master_infs_[master_port] == nullptr) {
-    local_master_infs_[master_port] = tm_make_com_inf(
-        clk_, name_ + "_local_master_inf_" + std::to_string(master_port),
-        std::max<uint32_t>(1, cfg_->ring_router_input_depth));
+    local_master_infs_[master_port] = tm_ring_make_event_inf(
+        clk_, name_ + "_local_master_inf_" + std::to_string(master_port));
     local_master_infs_[master_port]->set_chan_num(
         tm_ring_packet_channel_count(cfg_->rd_rsp_port_num));
     tm_sensitive(TM_MAKE_CPROC(&TmRingRouter::route_local_request),
@@ -167,9 +146,8 @@ void TmRingRouter::bind_local_target(uint32_t target_id,
     local_target_infs_.resize(target_id + 1, nullptr);
   }
   if (local_target_infs_[target_id] == nullptr) {
-    local_target_infs_[target_id] = tm_make_com_inf(
-        clk_, name_ + "_local_target_inf_" + std::to_string(target_id),
-        std::max<uint32_t>(1, cfg_->ring_router_input_depth));
+    local_target_infs_[target_id] = tm_ring_make_event_inf(
+        clk_, name_ + "_local_target_inf_" + std::to_string(target_id));
     local_target_infs_[target_id]->set_chan_num(
         tm_ring_packet_channel_count(cfg_->rd_rsp_port_num));
     tm_sensitive(TM_MAKE_CPROC(&TmRingRouter::route_local_response),
@@ -267,13 +245,6 @@ p_tm_ring_link_t TmRingRouter::output_link(TmRingPortDir out_dir) const {
   return nullptr;
 }
 
-p_tm_com_inf_t TmRingRouter::output_inf(TmRingPortDir out_dir) const {
-  if (out_dir == TmRingPortDir::LOCAL) {
-    return nullptr;
-  }
-  return link_out_infs_[ring_port_slot(out_dir)];
-}
-
 TmRingPortDir TmRingRouter::resolve_route(p_tm_pld_t pld) {
   auto cmd = static_cast<PldCmd>(pld->ring_traffic_class);
   bool is_request =
@@ -303,17 +274,7 @@ bool TmRingRouter::route_packet(p_tm_ring_candidate_t candidate) {
   }
 
   auto link = output_link(out_dir);
-  if (link == nullptr || !link->can_send(pld)) {
-    return false;
-  }
-  auto out_inf = output_inf(out_dir);
-  if (!out_inf->send(packet_channel(pld->ring_traffic_class,
-                                    pld->ring_rsp_lane),
-                     pld)) {
-    return false;
-  }
-  link->reserve_send(pld);
-  return true;
+  return link != nullptr && link->send_pkt(pld);
 }
 
 bool TmRingRouter::local_ready(p_tm_pld_t pld) {
