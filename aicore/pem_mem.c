@@ -265,6 +265,10 @@ bool TmMem::check_input(aic_req_type_t req_type) {
             else{
                 ddr_acc_crdt_ -= size;
             } 
+#ifdef TM_MEM_PV_EN
+            TM_ASSERT(pld->data != nullptr);
+            TM_ASSERT(mem_->write(pld->addr, size, pld->data));
+#endif
         }
         else { 
             if(is_l2_access){

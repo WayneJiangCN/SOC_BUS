@@ -60,9 +60,9 @@ struct RingDemoConfig
     uint32_t target_fifo_depth = 16;
     uint32_t ring_fifo_depth = 8;
 
-    uint32_t master_rd_osd = 16;
+    uint32_t master_rd_osd = 64;
     uint32_t master_wr_osd = 16;
-    uint32_t global_osd = 64;
+    uint32_t global_osd = 256;
     // Zero means inherit the corresponding limit from the memory config.
     uint32_t target_rd_osd = 0;
     uint32_t target_wr_osd = 0;

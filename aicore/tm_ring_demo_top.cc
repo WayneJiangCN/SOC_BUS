@@ -15,6 +15,9 @@ utest(const std::string& cfg_file_name)
 {
     auto test_case =
         tm_ring_demo::make_demo_case("multi_master_multi_target");
+    std::string config_error;
+    ASSERT_TRUE(tm_ring_demo::apply_utest_options(
+        &test_case, &config_error)) << config_error;
 
     before_test();
     int status = 0;
