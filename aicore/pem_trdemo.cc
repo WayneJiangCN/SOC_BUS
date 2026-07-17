@@ -290,7 +290,6 @@ void PemTrDemo::pipeline()
     if (buf_id == UINT32_MAX)
     {
         ++stats_.write_buffer_stalls;
-        ++stats_.write_buffer_stalls;
         // std::cout << "ERROR: buf_id is nullptr!" << std::endl;
         return;
     }
@@ -305,11 +304,6 @@ void PemTrDemo::pipeline()
     {
         pipe_que_->pop_front();
         const uint64_t now = static_cast<uint64_t>(time());
-        write_issue_cycles_[buf_id] = now;
-        write_issue_valid_[buf_id] = true;
-        ++stats_.write_requests;
-        stats_.write_bytes += uop->size;
-        const uint64_t now = static_cast<uint64_t>(time());
         write_buffer_ids_[wr_pld->gid] = buf_id;
         write_issue_cycles_[wr_pld->gid] = now;
         ++stats_.write_requests;
@@ -319,7 +313,6 @@ void PemTrDemo::pipeline()
     }
     else
     {
-        ++stats_.write_send_stalls;
         ++stats_.write_send_stalls;
         release_write_buf(buf_id);
         std::cout << "write_port_->send失败" << std::endl;
@@ -338,7 +331,6 @@ void PemTrDemo::wr_recv_rsp()
     auto wr_resp = write_port_->pop_pld();
     if (wr_resp == nullptr)
     {
-        ++stats_.protocol_errors;
         ++stats_.protocol_errors;
         std::cout << "ERROR: recv_rsp() - rd_resp is nullptr!" << std::endl;
         return;

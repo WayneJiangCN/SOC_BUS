@@ -84,12 +84,40 @@ make_demo_case(const std::string& name)
 {
     RingDemoConfig tc;
     tc.name = name;
-    tc.num_masters = 4;
-    tc.num_targets = 4;
-    tc.uops_per_master = 256;
-    tc.cycles = 50000;
-    tc.target_interleave = true;
-    return tc;
+
+    if (name == "single_rw") {
+        return tc;
+    }
+    if (name == "multi_master") {
+        tc.num_masters = 4;
+        tc.uops_per_master = 256;
+        tc.cycles = 40000;
+        return tc;
+    }
+    if (name == "multi_target_linear" ||
+        name == "multi_master_multi_target") {
+        tc.num_masters = 4;
+        tc.num_targets = 4;
+        tc.uops_per_master = 256;
+        tc.cycles = 50000;
+        tc.target_interleave = true;
+        return tc;
+    }
+    if (name == "backpressure") {
+        tc.num_masters = 4;
+        tc.num_targets = 2;
+        tc.uops_per_master = 256;
+        tc.cycles = 60000;
+        tc.target_interleave = true;
+        tc.master_fifo_depth = 2;
+        tc.target_fifo_depth = 2;
+        tc.ring_fifo_depth = 2;
+        tc.master_rd_osd = 16;
+        tc.master_wr_osd = 16;
+        tc.global_osd = 64;
+        return tc;
+    }
+    throw std::invalid_argument("unknown ring demo case: " + name);
 }
 
 inline bool
