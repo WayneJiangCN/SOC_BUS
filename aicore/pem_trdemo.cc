@@ -1,147 +1,18 @@
- #ifndef _PEM_DEMO_H_
-#define _PEM_DEMO_H_
-
-#include <array>
-#include <cstring>
-#include <functional>
-#include <queue>
-#include <unordered_map>
-#include <vector>
-#include "tm_engine.h"
-#include "tm_que.h"
-#include "tm_inf.h"
-#include "tm_mem.h"
-#include "tm_pld.h"
-#include "fp.h"
-#include "isa.h"
-#include "pem_log.h"
-#include "pem_biu.h"
-
-using namespace std;
-using namespace tm_engine;
-
-using PldCmd = pld_cmd_t;
-
-/*
- * demo.cc:
- * 示例流量发生器实现文件。
- * 它不属于 fabric 核心逻辑，但经常用于验证 PemBiu 和互连模型是否打通。
- */
-
-const static uint BAND_WIDTH = 128;
-
-// ----------------------------------------------
-// UOP 结构体（精简版）
-// ----------------------------------------------
-using demo_uop_t = struct DemoUop
-{
-    uint32_t vld_time = 0;
-    uint32_t req_id = 0;
-    uint64_t addr = 0;
-    uint32_t size = 0;
-    uint64_t result = 0;
-
-    DemoUop() {}
-    DemoUop(uint32_t vt, uint32_t rid, uint64_t a, uint32_t s)
-        : vld_time(vt), req_id(rid), addr(a), size(s), result(0) {}
-};
-
-using p_demo_uop_t = std::shared_ptr<demo_uop_t>;
-
-// 流水线延迟参数
-const static int UOP_GEN_LATCY = 2;
-const static int CALC_LATCY = 6;
-
-const uint32_t TOTAL_UOP_COUNT = 1600;
-const uint32_t START_ADDR = 0x30000000;
-const uint32_t END_ADDR = 0x40000000;
-
-struct PairEntry
-{
-    uint64_t wr_addr = 0;
-    uint32_t size = 0;
-    std::vector<uint8_t> stored_data;
-    bool has_data = false;
-
-    void reset()
-    {
-        wr_addr = 0;
-        size = 0;
-        stored_data.clear();
-        has_data = false;
-    }
-};
-
-// ----------------------------------------------
-// DemoModule 类
-// ----------------------------------------------
-class DemoModule : public tm_engine::TmModule
-{
-public:
-    DemoModule(const std::string &name, tm_engine::p_tm_clk_t clk);
-    ~DemoModule();
-
-public:
-    virtual void config() override;
-    virtual void attach(p_pem_biu_t biu);
-    virtual void build() override;
-    virtual void reset() override;
-    virtual bool idle() override;
-
-public:
-    tm_engine::p_tm_clk_t clk_ = nullptr;
-    p_tm_mem_t mem_ = nullptr;
-    p_pem_biu_t biu_ = nullptr;
-
-    p_tm_com_inf_t read_port_ = nullptr;
-    p_tm_com_inf_t write_port_ = nullptr;
-
-    p_tm_que_t<p_isa_t> instr_que_ = nullptr;
-
-    p_tm_que_t<p_demo_uop_t> uop_que_ = nullptr;
-    p_tm_que_t<p_demo_uop_t> pipe_que_ = nullptr;
-
-    p_logger_t rd_log_ = nullptr;
-    p_logger_t wr_log_ = nullptr;
-    p_logger_t log_ = nullptr;
-
-public:
-    void gen_uop();
-    void read_mem();
-    void recv_rsp();
-    void calc_pair(uint64_t wr_addr);
-    void pipeline();
-    void wr_recv_rsp();
-
-private:
-    uint32_t current_uop_count_ = 0;
-
-    std::unordered_map<uint64_t, PairEntry> pair_buffer_;
-    uint32_t max_pair_entries_ = TOTAL_UOP_COUNT;
-    static constexpr uint32_t WRITE_BUF_POOL_SIZE = 64;
-    uint8_t write_buf_pool_[WRITE_BUF_POOL_SIZE][4];
-    std::queue<uint32_t> free_write_buf_ids_;
-
-    bool handle_read_response(p_tm_pld_t rd_resp);
-    uint32_t allocate_write_buf();
-    void release_write_buf(uint32_t id);
-};
-
-#endif
+#include "pem_trdemo.h"
 
 //----------------------------------------------------------------------------------------
-DemoModule::DemoModule(const std::string &name, tm_engine::p_tm_clk_t clk)
-    : TmModule("demo"), clk_(clk)
+PemTrDemo::PemTrDemo(const std::string &name, tm_engine::p_tm_clk_t clk)
+    : TmModule(name), clk_(clk)
 {
     config();
 }
 
-DemoModule::~DemoModule()
+PemTrDemo::~PemTrDemo()
 {
 }
 
 //-----------------------------------------------------------------------------------------
-void DemoModule::config()
+void PemTrDemo::config()
 {
     instr_que_ = tm_make_que<p_isa_t>(clk_, "instr_que", tm_engine::TM_MAX_UL);
     uop_que_ = tm_make_que<p_demo_uop_t>(clk_, "uop_que", UOP_GEN_LATCY + 1, UOP_GEN_LATCY);
@@ -149,12 +20,12 @@ void DemoModule::config()
     write_port_ = tm_make_inf<p_tm_pld_t>(clk_, "write_port");
     pipe_que_ = tm_make_que<p_demo_uop_t>(clk_, "pipe_que", CALC_LATCY + 1, CALC_LATCY);
     // pipe_que_->enable_rdy_event();
-    tm_sensitive(TM_MAKE_CPROC(&DemoModule::gen_uop), instr_que_->vld);
-    tm_sensitive(TM_MAKE_CPROC(&DemoModule::read_mem), uop_que_->vld);
-    tm_sensitive(TM_MAKE_CPROC(&DemoModule::recv_rsp), read_port_->vld);
-    tm_sensitive(TM_MAKE_CPROC(&DemoModule::pipeline), pipe_que_->vld);
-    // tm_sensitive(TM_MAKE_CPROC(&DemoModule::process_ready_pairs), pipe_que_->rdy);
-    tm_sensitive(TM_MAKE_CPROC(&DemoModule::wr_recv_rsp), write_port_->vld);
+    tm_sensitive(TM_MAKE_CPROC(&PemTrDemo::gen_uop), instr_que_->vld);
+    tm_sensitive(TM_MAKE_CPROC(&PemTrDemo::read_mem), uop_que_->vld);
+    tm_sensitive(TM_MAKE_CPROC(&PemTrDemo::recv_rsp), read_port_->vld);
+    tm_sensitive(TM_MAKE_CPROC(&PemTrDemo::pipeline), pipe_que_->vld);
+    // tm_sensitive(TM_MAKE_CPROC(&PemTrDemo::process_ready_pairs), pipe_que_->rdy);
+    tm_sensitive(TM_MAKE_CPROC(&PemTrDemo::wr_recv_rsp), write_port_->vld);
     // log
     std::string log_name = this->name() + ".log";
     log_para_t log_para = log_para_t(log_name);
@@ -173,18 +44,18 @@ void DemoModule::config()
         free_write_buf_ids_.push(i);
     }
 }
-void DemoModule::attach(p_pem_biu_t biu)
+void PemTrDemo::attach(p_pem_biu_t biu)
 {
     biu_ = biu;
 }
 
-void DemoModule::build()
+void PemTrDemo::build()
 {
     read_port_->connect(biu_->v_dcache_rd_inf_[0]);
     write_port_->connect(biu_->v_dcache_wr_inf_[0]);
 }
 
-bool DemoModule::idle()
+bool PemTrDemo::idle()
 {
     return instr_que_->empty() && uop_que_->empty() && pipe_que_->empty() &&
            pair_buffer_.empty() &&
@@ -192,7 +63,7 @@ bool DemoModule::idle()
            read_port_->idle() && write_port_->idle();
 }
 
-void DemoModule::reset()
+void PemTrDemo::reset()
 {
     current_uop_count_ = 0;
     pair_buffer_.clear();
@@ -209,7 +80,7 @@ void DemoModule::reset()
     pipe_que_->clear();
 }
 
-void DemoModule::gen_uop()
+void PemTrDemo::gen_uop()
 {
     if (instr_que_->valid() && !instr_que_->empty())
     {
@@ -237,7 +108,7 @@ void DemoModule::gen_uop()
         }
     }
 }
-void DemoModule::read_mem()
+void PemTrDemo::read_mem()
 {
     if (uop_que_->empty())
         return;
@@ -256,7 +127,7 @@ void DemoModule::read_mem()
         PEM_LOG_INFO(rd_log_, "time:{0:d},read_port_->send失败", time());
     }
 }
-void DemoModule::recv_rsp()
+void PemTrDemo::recv_rsp()
 {
 
     if (!read_port_->valid())
@@ -272,7 +143,7 @@ void DemoModule::recv_rsp()
     else
         std::cout << "WARNING: 读响应处理失败，req_id=" << req_id << std::endl;
 }
-bool DemoModule::handle_read_response(p_tm_pld_t rd_resp)
+bool PemTrDemo::handle_read_response(p_tm_pld_t rd_resp)
 {
     uint64_t addr = rd_resp->addr;
     uint32_t size = rd_resp->size;
@@ -338,7 +209,7 @@ bool DemoModule::handle_read_response(p_tm_pld_t rd_resp)
     return true;
 }
 
-void DemoModule::pipeline()
+void PemTrDemo::pipeline()
 {
     if (pipe_que_->empty())
         return;
@@ -370,7 +241,7 @@ void DemoModule::pipeline()
     //  rd_pld->print();
 }
 
-void DemoModule::wr_recv_rsp()
+void PemTrDemo::wr_recv_rsp()
 {
     PEM_LOG_INFO(wr_log_, "M4");
     if (!write_port_->valid())
@@ -390,7 +261,7 @@ void DemoModule::wr_recv_rsp()
                  wr_resp->size, wr_resp->addr, wr_resp->data == nullptr ? 0 : wr_resp->data[0], time());
 }
 
-uint32_t DemoModule::allocate_write_buf()
+uint32_t PemTrDemo::allocate_write_buf()
 {
     if (free_write_buf_ids_.empty())
         return UINT32_MAX;
@@ -398,7 +269,7 @@ uint32_t DemoModule::allocate_write_buf()
     free_write_buf_ids_.pop();
     return id;
 }
-void DemoModule::release_write_buf(uint32_t id)
+void PemTrDemo::release_write_buf(uint32_t id)
 {
     if (id >= WRITE_BUF_POOL_SIZE)
         return;

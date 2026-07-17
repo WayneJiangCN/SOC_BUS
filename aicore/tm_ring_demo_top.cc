@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "cfg.h"
-#include "demo.hh"
+#include "pem_trdemo.h"
 #include "pem_biu.h"
 #include "tm_engine.h"
 #include "tm_mem.h"
@@ -145,7 +145,7 @@ main(int argc, char** argv)
     ring->attach_master(0, biu);
     ring->attach_target(0, ddr);
 
-    auto demo = make_shared<DemoModule>(std::string("demo"), clk);
+    auto demo = make_shared<PemTrDemo>(std::string("pem_trdemo"), clk);
     demo->attach(biu);
     demo->build();
 

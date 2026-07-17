@@ -1,5 +1,5 @@
- #ifndef _PEM_DEMO_H_
-#define _PEM_DEMO_H_
+#ifndef _PEM_TRDEMO_H_
+#define _PEM_TRDEMO_H_
 
 #include <array>
 #include <cstring>
@@ -21,7 +21,7 @@ using namespace std;
 using namespace tm_engine;
 
 /*
- * demo.hh:
+ * pem_trdemo.h:
  * 一个轻量示例模块，用来驱动 PemBiu 产生读写事务，
  * 方便联调 bus/ring/mem 这一整条路径。
  */
@@ -71,13 +71,13 @@ struct PairEntry
 };
 
 // ----------------------------------------------
-// DemoModule 类
+// PemTrDemo 类
 // ----------------------------------------------
-class DemoModule : public tm_engine::TmModule
+class PemTrDemo : public tm_engine::TmModule
 {
 public:
-    DemoModule(const std::string &name, tm_engine::p_tm_clk_t clk);
-    ~DemoModule();
+    PemTrDemo(const std::string &name, tm_engine::p_tm_clk_t clk);
+    ~PemTrDemo();
 
 public:
     virtual void config() override;

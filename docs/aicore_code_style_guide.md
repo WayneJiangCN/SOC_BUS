@@ -145,7 +145,7 @@
 2. **Fabric / Interconnect 模块**
    例如 `TmBusFabric`
 3. **Traffic / Demo 模块**
-   例如 `demo.cc` 里的流量发生模块
+   例如 `pem_trdemo.cc` 里的流量发生模块
 4. **辅助子模块**
    例如 `Topology`、`FlowCtrl`、`Arbiter`
 
@@ -445,7 +445,7 @@
 
 ### 12.4 demo 与正式模块分离更清楚
 
-`demo.cc` 更偏用例和流量发生器。  
+`pem_trdemo.cc` 更偏用例和流量发生器。
 建议后续继续把：
 
 - demo / testcase
