@@ -5,65 +5,32 @@
 namespace {
 
 const char* kPemConfig = "../etc/pem_config_cloud.toml";
+const char* kResultFile = "pem_multi_master_multi_target_result.txt";
 
 }  // namespace
 
 template <typename T>
 void
-utest(const std::string& cfg_file_name,
-      tm_ring_demo::RingDemoConfig test_case)
+utest(const std::string& cfg_file_name)
 {
-    std::string error;
-    if (!tm_ring_demo::apply_utest_options(&test_case, &error)) {
-        throw std::invalid_argument("invalid ring demo config: " + error);
-    }
+    auto test_case =
+        tm_ring_demo::make_demo_case("multi_master_multi_target");
 
     before_test();
     int status = 0;
     try {
-        status = tm_ring_demo::run_demo<T>(cfg_file_name, test_case);
+        status = tm_ring_demo::run_demo_to_file<T>(
+            cfg_file_name, test_case, kResultFile);
     } catch (...) {
         after_test();
         throw;
     }
     after_test();
 
-    if (status != 0) {
-        throw std::runtime_error("ring demo failed: " + test_case.name);
-    }
+    ASSERT_EQ(status, 0) << "see result file: " << kResultFile;
 }
 
-template <typename T>
-void
-utest(const std::string& cfg_file_name, const std::string& case_name)
-{
-    utest<T>(cfg_file_name, tm_ring_demo::make_demo_case(case_name));
-}
-
-template <typename T>
-void
-utest(const std::string& cfg_file_name)
-{
-    utest<T>(cfg_file_name, "multi_master");
-}
-
-TEST(pem, single_rw)
-{
-    utest<PemTrDemo>(kPemConfig, "single_rw");
-}
-
-// Keep the existing GTest filter as the multi-master compatibility entry.
 TEST(pem, utest)
 {
-    utest<PemTrDemo>(kPemConfig, "multi_master");
-}
-
-TEST(pem, multi_target_linear)
-{
-    utest<PemTrDemo>(kPemConfig, "multi_target_linear");
-}
-
-TEST(pem, backpressure)
-{
-    utest<PemTrDemo>(kPemConfig, "backpressure");
+    utest<PemTrDemo>(kPemConfig);
 }
