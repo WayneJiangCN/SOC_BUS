@@ -73,6 +73,7 @@ class TmRingFabric : public tm_engine::TmModule
     uint64_t global_osd_stalls() const;
     uint64_t target_slot_stalls() const;
     uint64_t bandwidth_token_stalls() const;
+    uint64_t ring_link_stalls() const;
 
   protected:
     tm_engine::p_tm_clk_t clk_ = nullptr;

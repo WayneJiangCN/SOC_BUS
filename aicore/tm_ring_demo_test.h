@@ -745,7 +745,9 @@ run_demo(const std::string& cfg_file_name, const RingDemoConfig& test_case)
             global_last_cycle =
                 std::max(global_last_cycle, stat.last_write_response_cycle);
         }
-        const uint64_t payload_bytes = stat.read_bytes + stat.write_bytes;
+        const uint64_t payload_bytes =
+            stat.read_responses * BAND_WIDTH +
+            stat.write_responses * sizeof(uint32_t);
         const double payload_bpc =
             active_cycles == 0
                 ? 0.0
@@ -788,8 +790,10 @@ run_demo(const std::string& cfg_file_name, const RingDemoConfig& test_case)
         total_pairs += stat.completed_pairs;
         total_writes += stat.write_requests;
         total_write_responses += stat.write_responses;
-        total_read_bytes += stat.read_bytes;
-        total_write_bytes += stat.write_bytes;
+        // Throughput is based on completed responses. Counting issued bytes
+        // makes an incomplete/deadlocked run look faster than the link peak.
+        total_read_bytes += stat.read_responses * BAND_WIDTH;
+        total_write_bytes += stat.write_responses * sizeof(uint32_t);
         total_read_stalls += stat.read_send_stalls;
         total_read_response_stalls += stat.read_response_stalls;
         total_write_stalls += stat.write_send_stalls;
@@ -865,8 +869,9 @@ run_demo(const std::string& cfg_file_name, const RingDemoConfig& test_case)
     const uint64_t target_slot_stalls = ring->target_slot_stalls();
     const uint64_t bandwidth_token_stalls =
         ring->bandwidth_token_stalls();
+    const uint64_t ring_link_stalls = ring->ring_link_stalls();
     const uint64_t fabric_stalls = global_osd_stalls + target_slot_stalls +
-                                   bandwidth_token_stalls;
+                                   bandwidth_token_stalls + ring_link_stalls;
     const uint64_t all_stalls = endpoint_stalls + fabric_stalls;
     const char* dominant_bottleneck = "none";
     uint64_t dominant_stalls = 0;
@@ -882,6 +887,10 @@ run_demo(const std::string& cfg_file_name, const RingDemoConfig& test_case)
         dominant_stalls = bandwidth_token_stalls;
         dominant_bottleneck = "bandwidth_token";
     }
+    if (ring_link_stalls > dominant_stalls) {
+        dominant_stalls = ring_link_stalls;
+        dominant_bottleneck = "ring_link";
+    }
 
     const uint32_t parallel_paths =
         std::min(test_case.num_masters, test_case.num_targets);
@@ -894,7 +903,20 @@ run_demo(const std::string& cfg_file_name, const RingDemoConfig& test_case)
         estimated_peak_bpc == 0.0
             ? 0.0
             : 100.0 * read_bpc / estimated_peak_bpc;
+    const uint64_t expected_total_reads =
+        expected_reads * test_case.num_masters;
+    const uint64_t expected_total_writes =
+        expected_writes * test_case.num_masters;
+    const bool measurement_valid =
+        total_reads == expected_total_reads &&
+        total_read_responses == expected_total_reads &&
+        total_pairs == expected_total_writes &&
+        total_writes == expected_total_writes &&
+        total_write_responses == expected_total_writes &&
+        total_protocol_errors == 0 && ring_idle && demo_idle && biu_idle &&
+        target_idle;
     const bool performance_target_met =
+        measurement_valid &&
         utilization_pct >= test_case.performance_target_pct;
     if (test_case.require_performance_target && !performance_target_met) {
         std::ostringstream os;
@@ -930,6 +952,8 @@ run_demo(const std::string& cfg_file_name, const RingDemoConfig& test_case)
               << estimated_peak_bpc
               << " utilization_pct=" << utilization_pct
               << " target_pct=" << test_case.performance_target_pct
+              << " measurement_valid="
+              << (measurement_valid ? "yes" : "no")
               << " target_met="
               << (performance_target_met ? "yes" : "no") << std::endl;
     std::cout << "TEST_LATENCY read_avg_cycles=" << read_latency_avg
@@ -947,6 +971,7 @@ run_demo(const std::string& cfg_file_name, const RingDemoConfig& test_case)
               << global_osd_stalls
               << " target_slot_stalls=" << target_slot_stalls
               << " bandwidth_token_stalls=" << bandwidth_token_stalls
+              << " ring_link_stalls=" << ring_link_stalls
               << " dominant=" << dominant_bottleneck << std::endl;
     std::cout << "TEST_FAIRNESS jain_index=" << fairness << std::endl;
     std::cout << "TEST_IDLE ring=" << ring_idle << " demo=" << demo_idle

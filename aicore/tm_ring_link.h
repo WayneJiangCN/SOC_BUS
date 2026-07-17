@@ -20,6 +20,7 @@ class TmRingLink : public tm_engine::TmModule {
     uint64_t bytes = 0;
     uint64_t busy_cycles = 0;
     uint64_t downstream_inf_full_stall = 0;
+    uint64_t send_reject_stall = 0;
     uint64_t invalid_dst_stall = 0;
     uint64_t null_payload_drop = 0;
     uint32_t inflight_peak = 0;
@@ -37,7 +38,7 @@ class TmRingLink : public tm_engine::TmModule {
   void reset();
   bool idle() const;
 
-  bool can_send(p_tm_pld_t pld) const;
+  bool can_send(p_tm_pld_t pld);
   bool send_pkt(p_tm_pld_t pld);
   uint32_t packet_bytes(p_tm_pld_t pld) const;
   const LinkSubnetStats& subnet_stats(TmRingSubnet subnet) const;

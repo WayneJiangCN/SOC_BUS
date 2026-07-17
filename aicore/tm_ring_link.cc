@@ -85,10 +85,18 @@ bool TmRingLink::idle() const {
   return ret;
 }
 
-bool TmRingLink::can_send(p_tm_pld_t pld) const {
+bool TmRingLink::can_send(p_tm_pld_t pld) {
+  if (pld == nullptr) {
+    return false;
+  }
   uint32_t idx = pld->ring_subnet;
-  return time() >= next_send_time_[idx] && !inflight_packets_[idx]->full() &&
-         inflight_count_[idx] < max_inflight_[idx];
+  const bool ready = time() >= next_send_time_[idx] &&
+                     !inflight_packets_[idx]->full() &&
+                     inflight_count_[idx] < max_inflight_[idx];
+  if (!ready) {
+    stats_[idx].send_reject_stall++;
+  }
+  return ready;
 }
 
 bool TmRingLink::send_pkt(p_tm_pld_t pld) {

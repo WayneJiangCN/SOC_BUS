@@ -234,6 +234,17 @@ uint64_t TmRingFabric::bandwidth_token_stalls() const {
   return flow_ctrl_ == nullptr ? 0 : flow_ctrl_->bandwidth_token_stalls();
 }
 
+uint64_t TmRingFabric::ring_link_stalls() const {
+  uint64_t stalls = 0;
+  for (const auto& it : links_) {
+    const auto& req = it.second->subnet_stats(TmRingSubnet::REQ);
+    const auto& rsp = it.second->subnet_stats(TmRingSubnet::RSP);
+    stalls += req.send_reject_stall + req.downstream_inf_full_stall;
+    stalls += rsp.send_reject_stall + rsp.downstream_inf_full_stall;
+  }
+  return stalls;
+}
+
 void TmRingFabric::attach_master(uint32_t idx, p_tm_ring_inf_t inf) {
   if (idx >= master_nius_.size() || inf == nullptr) {
     return;
