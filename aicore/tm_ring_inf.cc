@@ -31,14 +31,14 @@ void TmRingInf::config() {
 
   bus_inf_ =
       tm_make_com_inf(clk_, this->name() + "_bus_inf",
-                      cfg_->master_inf_depth);
+                      cfg_->master_inf_delay + 1);
   bus_inf_->set_chan_num(chan_num);
   tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_rd_cmd), bus_inf_->vld);
   tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_wr_cmd), bus_inf_->vld);
   tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_wr_dat), bus_inf_->vld);
 
   router_inf_ = tm_make_com_inf(clk_, this->name() + "_router_inf",
-                                cfg_->master_inf_depth);
+                                cfg_->master_inf_delay + 1);
   router_inf_->set_chan_num(tm_ring_packet_channel_count(cfg_->rd_rsp_port_num));
   tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_router_rsp),
                router_inf_->vld);

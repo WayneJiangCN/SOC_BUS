@@ -35,7 +35,7 @@ constexpr uint32_t kDemoCycles = 20000;
 
 struct RingDemoConfig
 {
-    std::string name = "multi_master_multi_target";
+    std::string name = "single_rw";
     uint32_t num_masters = 1;
     uint32_t num_targets = 1;
     uint32_t uops_per_master = TOTAL_UOP_COUNT;
@@ -59,10 +59,12 @@ struct RingDemoConfig
     uint32_t master_fifo_depth = 16;
     uint32_t target_fifo_depth = 16;
     uint32_t ring_fifo_depth = 8;
+    uint32_t master_inf_delay = 1;
+    uint32_t target_inf_delay = 1;
 
-    uint32_t master_rd_osd = 64;
+    uint32_t master_rd_osd = 16;
     uint32_t master_wr_osd = 16;
-    uint32_t global_osd = 256;
+    uint32_t global_osd = 64;
     // Zero means inherit the corresponding limit from the memory config.
     uint32_t target_rd_osd = 0;
     uint32_t target_wr_osd = 0;
@@ -221,6 +223,10 @@ apply_option(const std::string& name, const std::string& value,
         field = &tc->ring_link_width_bytes;
     } else if (name == "--link-max-inflight") {
         field = &tc->ring_link_max_inflight;
+    } else if (name == "--master-inf-delay") {
+        field = &tc->master_inf_delay;
+    } else if (name == "--target-inf-delay") {
+        field = &tc->target_inf_delay;
     } else if (name == "--master-fifo-depth") {
         field = &tc->master_fifo_depth;
     } else if (name == "--target-fifo-depth") {
@@ -312,6 +318,11 @@ validate_config(const RingDemoConfig& tc, std::string* error)
         tc.master_wr_osd == 0 || tc.global_osd == 0) {
         *error = "width, FIFO, link inflight and master/global OSD values "
                  "must be non-zero";
+        return false;
+    }
+    if (tc.master_inf_delay == std::numeric_limits<uint32_t>::max() ||
+        tc.target_inf_delay == std::numeric_limits<uint32_t>::max()) {
+        *error = "interface delay must be smaller than UINT32_MAX";
         return false;
     }
     if (!std::isfinite(tc.performance_target_pct) ||
@@ -411,8 +422,8 @@ make_demo_ring_cfg(const p_tm_mem_cfg_t& ddr_cfg,
     cfg->num_masters = tc.num_masters;
     cfg->num_targets = tc.num_targets;
     cfg->rd_rsp_port_num = 2;
-    cfg->master_inf_depth = 2;
-    cfg->target_inf_depth = 2;
+    cfg->master_inf_delay = tc.master_inf_delay;
+    cfg->target_inf_delay = tc.target_inf_delay;
 
     cfg->master_rd_cmd_fifo_depth = tc.master_fifo_depth;
     cfg->master_wr_cmd_fifo_depth = tc.master_fifo_depth;
@@ -713,6 +724,10 @@ run_demo(const std::string& cfg_file_name, const RingDemoConfig& test_case)
               << " link_max_inflight="
               << test_case.ring_link_max_inflight
               << " ring_fifo_depth=" << test_case.ring_fifo_depth
+              << " master_inf_delay=" << test_case.master_inf_delay
+              << " master_inf_capacity=" << (test_case.master_inf_delay + 1)
+              << " target_inf_delay=" << test_case.target_inf_delay
+              << " target_inf_capacity=" << (test_case.target_inf_delay + 1)
               << " target_width=" << test_case.target_width_bytes
               << " target_latency="
               << (test_case.target_frontend_latency +
@@ -901,6 +916,10 @@ run_demo(const std::string& cfg_file_name, const RingDemoConfig& test_case)
     const uint64_t fabric_stalls = global_osd_stalls + target_slot_stalls +
                                    bandwidth_token_stalls + ring_link_stalls;
     const uint64_t all_stalls = endpoint_stalls + fabric_stalls;
+    if (test_case.name == "backpressure" && all_stalls == 0) {
+        failures.push_back(
+            "backpressure case completed without exercising a stall path");
+    }
     const char* dominant_bottleneck = "none";
     uint64_t dominant_stalls = 0;
     if (global_osd_stalls > dominant_stalls) {

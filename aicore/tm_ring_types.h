@@ -123,11 +123,10 @@ struct TmRingCfg {
   // 读响应返回通道数量；lane0 使用 RD_RSP 基础通道，额外 lane 追加在后面。
   uint32_t rd_rsp_port_num = 2;
 
-  // Master 侧 TmInf 端口深度。TmInf 只表达握手/端口延迟，不作为长期存储。
-  // tm_make_com_inf 默认 delay=1，因此建议 depth=2。
-  uint32_t master_inf_depth = 2;
-  // Target 侧 TmInf 端口深度，语义同 master_inf_depth。
-  uint32_t target_inf_depth = 2;
+  // Master 侧 TmInf 端口延迟；创建端口时使用 delay + 1 作为容量。
+  uint32_t master_inf_delay = 1;
+  // Target 侧 TmInf 端口延迟，语义同 master_inf_delay。
+  uint32_t target_inf_delay = 1;
   // Master NIU 内部读命令 FIFO 深度，是真正的 master 侧缓存资源。
   uint32_t master_rd_cmd_fifo_depth = 8;
   // Master NIU 内部写命令 FIFO 深度，是真正的 master 侧缓存资源。

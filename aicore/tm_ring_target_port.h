@@ -31,12 +31,12 @@ class TmRingTargetPort : public tm_engine::TmModule
     TmRingTargetPort();
     TmRingTargetPort(const std::string& name, tm_engine::p_tm_clk_t clk,
                      p_tm_ring_target_cfg_t cfg, uint32_t rd_rsp_port_num,
-                     uint32_t inf_depth);
+                     uint32_t inf_delay);
     ~TmRingTargetPort();
 
     void config(const std::string& name, tm_engine::p_tm_clk_t clk,
                 p_tm_ring_target_cfg_t cfg, uint32_t rd_rsp_port_num,
-                uint32_t inf_depth);
+                uint32_t inf_delay);
     void reset();
     bool idle() const;
 
@@ -96,10 +96,10 @@ using p_tm_ring_target_port_t = std::shared_ptr<tm_ring_target_port_t>;
 inline p_tm_ring_target_port_t
 tm_make_ring_target_port(const std::string& name, tm_engine::p_tm_clk_t clk,
                          p_tm_ring_target_cfg_t cfg, uint32_t rd_rsp_port_num,
-                         uint32_t inf_depth)
+                         uint32_t inf_delay)
 {
     return std::make_shared<TmRingTargetPort>(name, clk, cfg, rd_rsp_port_num,
-                                              inf_depth);
+                                              inf_delay);
 }
 
 #endif  // _TM_RING_TARGET_PORT_H_

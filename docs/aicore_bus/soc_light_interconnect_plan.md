@@ -190,8 +190,8 @@ Core / BIU
 
 ### 10.2 endpoint 参数
 
-- `master_inf_depth`
-- `target_inf_depth`
+- `master_inf_delay`（创建 TmInf 时容量为 `delay + 1`）
+- `target_inf_delay`（创建 TmInf 时容量为 `delay + 1`）
 - `master_rd_req_fifo_depth`
 - `master_wr_req_fifo_depth`
 - `master_wr_dat_fifo_depth`

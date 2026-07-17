@@ -80,8 +80,9 @@ struct TmBusCfg
     uint32_t num_targets = 1;
     uint32_t rd_rsp_port_num = 2;
 
-    uint32_t master_inf_depth = 4;
-    uint32_t target_inf_depth = 4;
+    // TmInf capacity is derived as delay + 1 when the endpoint is created.
+    uint32_t master_inf_delay = 3;
+    uint32_t target_inf_delay = 3;
 
     uint32_t master_rd_req_fifo_depth = 4;
     uint32_t master_wr_req_fifo_depth = 4;
