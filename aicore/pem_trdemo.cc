@@ -44,6 +44,16 @@ void PemTrDemo::config()
         free_write_buf_ids_.push(i);
     }
 }
+
+void PemTrDemo::configure_traffic(uint64_t start_addr, uint64_t end_addr,
+                                  uint32_t total_uop_count)
+{
+    start_addr_ = start_addr;
+    end_addr_ = end_addr;
+    total_uop_count_ = total_uop_count;
+    max_pair_entries_ = total_uop_count_;
+}
+
 void PemTrDemo::attach(p_pem_biu_t biu)
 {
     biu_ = biu;
@@ -92,7 +102,7 @@ void PemTrDemo::gen_uop()
             return;
         }
 
-        while (current_uop_count_ < TOTAL_UOP_COUNT && !uop_que_->full() && instr != nullptr)
+        while (current_uop_count_ < total_uop_count_ && !uop_que_->full() && instr != nullptr)
         {
             uint64_t src_addr = instr->start_addr_ + current_uop_count_ * BAND_WIDTH;
             int vld_time = time();
@@ -101,7 +111,7 @@ void PemTrDemo::gen_uop()
             uop_que_->push_back(uop);
             current_uop_count_++;
         }
-        if (current_uop_count_ == TOTAL_UOP_COUNT)
+        if (current_uop_count_ == total_uop_count_)
         {
             current_uop_count_ = 0;
             instr_que_->pop_front();
@@ -136,7 +146,7 @@ void PemTrDemo::recv_rsp()
     if (rd_resp == nullptr)
         return;
 
-    uint32_t req_id = (rd_resp->addr - START_ADDR) / BAND_WIDTH;
+    uint32_t req_id = (rd_resp->addr - start_addr_) / BAND_WIDTH;
     bool success = handle_read_response(rd_resp);
     if (success)
         read_port_->pop_pld();
@@ -147,8 +157,8 @@ bool PemTrDemo::handle_read_response(p_tm_pld_t rd_resp)
 {
     uint64_t addr = rd_resp->addr;
     uint32_t size = rd_resp->size;
-    uint32_t req_id = (addr - START_ADDR) / BAND_WIDTH;
-    uint64_t wr_addr = END_ADDR + (req_id / 2) * sizeof(uint32_t);
+    uint32_t req_id = (addr - start_addr_) / BAND_WIDTH;
+    uint64_t wr_addr = end_addr_ + (req_id / 2) * sizeof(uint32_t);
     PEM_LOG_INFO(log_, "Pair[{0:x}] req_id:{1:d},pair_buffer_.size():{2:d}", wr_addr, req_id, pair_buffer_.size());
     PEM_LOG_INFO(rd_log_, "time:{0:d},Pair[{1:x}] 到达 (req_id={2:d})", time(), wr_addr, req_id);
     if (rd_resp->data == nullptr)

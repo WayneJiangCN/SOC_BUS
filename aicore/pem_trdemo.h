@@ -81,6 +81,8 @@ public:
 
 public:
     virtual void config() override;
+    void configure_traffic(uint64_t start_addr, uint64_t end_addr,
+                           uint32_t total_uop_count);
     virtual void attach(p_pem_biu_t biu);
     virtual void build() override;
     virtual void reset() override;
@@ -113,6 +115,9 @@ public:
 
 private:
     uint32_t current_uop_count_ = 0;
+    uint64_t start_addr_ = START_ADDR;
+    uint64_t end_addr_ = END_ADDR;
+    uint32_t total_uop_count_ = TOTAL_UOP_COUNT;
 
     std::unordered_map<uint64_t, PairEntry> pair_buffer_;
     uint32_t max_pair_entries_ = TOTAL_UOP_COUNT;
@@ -124,3 +129,5 @@ private:
     uint32_t allocate_write_buf();
     void release_write_buf(uint32_t id);
 };
+
+#endif  // _PEM_TRDEMO_H_

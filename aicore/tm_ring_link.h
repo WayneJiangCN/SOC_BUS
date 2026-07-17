@@ -38,6 +38,7 @@ class TmRingLink : public tm_engine::TmModule {
   bool idle() const;
 
   bool can_send(p_tm_pld_t pld) const;
+  void reserve_send(p_tm_pld_t pld);
   uint32_t packet_bytes(p_tm_pld_t pld) const;
   const LinkSubnetStats& subnet_stats(TmRingSubnet subnet) const;
   void attach(p_tm_com_inf_t dst_inf);

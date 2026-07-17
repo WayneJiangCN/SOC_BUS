@@ -97,13 +97,12 @@ bool TmRingLink::can_send(p_tm_pld_t pld) const {
          inflight_count_[idx] < max_inflight_[idx];
 }
 
-void TmRingLink::enqueue_ready_packet(p_tm_pld_t pld) {
+void TmRingLink::reserve_send(p_tm_pld_t pld) {
   uint32_t idx = pld->ring_subnet;
   uint32_t bytes = packet_bytes(pld);
   uint32_t serialization_cycles =
       std::max<uint32_t>(1, (bytes + width_bytes_ - 1) / width_bytes_);
 
-  inflight_packets_[idx]->push_back(pld);
   inflight_count_[idx]++;
   stats_[idx].packets++;
   stats_[idx].bytes += bytes;
@@ -111,10 +110,20 @@ void TmRingLink::enqueue_ready_packet(p_tm_pld_t pld) {
   stats_[idx].inflight_peak =
       std::max(stats_[idx].inflight_peak, inflight_count_[idx]);
   next_send_time_[idx] = time() + serialization_cycles;
-  PEM_LOG_INFO(log_, "[{0:d}] enqueue subnet:{1:d} cmd:{2:d} gid:{3:d} "
-                     "bytes:{4:d} ser:{5:d} inflight:{6:d}",
+  PEM_LOG_INFO(log_, "[{0:d}] reserve subnet:{1:d} cmd:{2:d} gid:{3:d} "
+                     "bytes:{4:d} ser:{5:d} next_send:{6:d} inflight:{7:d}",
                time(), idx, pld->ring_traffic_class, pld->gid, bytes,
-               serialization_cycles, inflight_count_[idx]);
+               serialization_cycles, next_send_time_[idx],
+               inflight_count_[idx]);
+}
+
+void TmRingLink::enqueue_ready_packet(p_tm_pld_t pld) {
+  uint32_t idx = pld->ring_subnet;
+  inflight_packets_[idx]->push_back(pld);
+  PEM_LOG_INFO(log_, "[{0:d}] enqueue subnet:{1:d} cmd:{2:d} gid:{3:d} "
+                     "inflight:{4:d}",
+               time(), idx, pld->ring_traffic_class, pld->gid,
+               inflight_count_[idx]);
 }
 
 uint32_t TmRingLink::packet_bytes(p_tm_pld_t pld) const {
@@ -162,7 +171,8 @@ void TmRingLink::recv_packets() {
     }
 
     auto pld = src_inf_->get_pld(chan);
-    if (!can_send(pld)) {
+    uint32_t idx = pld->ring_subnet;
+    if (inflight_packets_[idx]->full()) {
       continue;
     }
 

@@ -307,9 +307,13 @@ bool TmRingRouter::route_packet(p_tm_ring_candidate_t candidate) {
     return false;
   }
   auto out_inf = output_inf(out_dir);
-  return out_inf->send(packet_channel(pld->ring_traffic_class,
-                                      pld->ring_rsp_lane),
-                       pld);
+  if (!out_inf->send(packet_channel(pld->ring_traffic_class,
+                                    pld->ring_rsp_lane),
+                     pld)) {
+    return false;
+  }
+  link->reserve_send(pld);
+  return true;
 }
 
 bool TmRingRouter::local_ready(p_tm_pld_t pld) {
