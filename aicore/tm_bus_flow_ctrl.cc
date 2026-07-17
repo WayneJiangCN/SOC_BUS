@@ -55,6 +55,10 @@ void
 TmBusFlowCtrl::reset()
 {
     last_token_update_time_ = static_cast<tm_time_t>(-1);
+    global_outstanding_ = 0;
+    global_osd_stalls_ = 0;
+    target_slot_stalls_ = 0;
+    bandwidth_token_stalls_ = 0;
 
     /* reset 时把所有 target 的资源恢复到满额状态。 */
     for (uint32_t i = 0; i < cfg_->num_targets; ++i) {
@@ -102,7 +106,7 @@ TmBusFlowCtrl::update_tokens(tm_time_t now)
 
 bool
 TmBusFlowCtrl::can_send_to_target(uint32_t target_id, aic_req_type_t req_type,
-                                  p_tm_pld_t pld) const
+                                  p_tm_pld_t pld)
 {
     /*
      * 三类事务的约束不同：
@@ -112,18 +116,41 @@ TmBusFlowCtrl::can_send_to_target(uint32_t target_id, aic_req_type_t req_type,
      */
     auto size = pld->size;
     if (req_type == aic_req_type_t::RD_REQ) {
-        return acc_slot_credit_[target_id] > 0 &&
-               rd_slot_credit_[target_id] > 0 &&
-               acc_bw_token_[target_id] >= size &&
-               rd_bw_token_[target_id] >= size;
+        if (global_outstanding_ >= cfg_->global_osd) {
+            global_osd_stalls_++;
+            return false;
+        }
+        if (acc_slot_credit_[target_id] == 0 ||
+            rd_slot_credit_[target_id] == 0) {
+            target_slot_stalls_++;
+            return false;
+        }
+        if (acc_bw_token_[target_id] < size ||
+            rd_bw_token_[target_id] < size) {
+            bandwidth_token_stalls_++;
+            return false;
+        }
+        return true;
     }
     if (req_type == aic_req_type_t::WR_REQ) {
-        return acc_slot_credit_[target_id] > 0 &&
-               wr_slot_credit_[target_id] > 0;
+        if (global_outstanding_ >= cfg_->global_osd) {
+            global_osd_stalls_++;
+            return false;
+        }
+        if (acc_slot_credit_[target_id] == 0 ||
+            wr_slot_credit_[target_id] == 0) {
+            target_slot_stalls_++;
+            return false;
+        }
+        return true;
     }
 
-    return acc_bw_token_[target_id] >= size &&
-           wr_bw_token_[target_id] >= size;
+    if (acc_bw_token_[target_id] < size ||
+        wr_bw_token_[target_id] < size) {
+        bandwidth_token_stalls_++;
+        return false;
+    }
+    return true;
 }
 
 
@@ -144,6 +171,7 @@ TmBusFlowCtrl::consume_target_credit(uint32_t target_id,
         acc_bw_token_[target_id] -= size;
         rd_bw_token_[target_id] -= size;
         target_outstanding_[target_id]++;
+        global_outstanding_++;
         return;
     }
 
@@ -151,6 +179,7 @@ TmBusFlowCtrl::consume_target_credit(uint32_t target_id,
         acc_slot_credit_[target_id]--;
         wr_slot_credit_[target_id]--;
         target_outstanding_[target_id]++;
+        global_outstanding_++;
         return;
     }
 
@@ -185,6 +214,13 @@ TmBusFlowCtrl::release_target_credit(uint32_t target_id, aic_req_type_t req_type
         return;
     }
     target_outstanding_[target_id]--;
+    if (global_outstanding_ == 0) {
+        std::cerr << "TmBusFlowCtrl: global outstanding underflow"
+                  << std::endl;
+        assert(false && "global outstanding underflow");
+        return;
+    }
+    global_outstanding_--;
 }
 
 uint32_t

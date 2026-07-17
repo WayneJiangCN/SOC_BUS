@@ -62,6 +62,7 @@ void TmRingFabric::init_topology_and_flow_ctrl() {
 
   auto flow_ctrl_cfg = std::make_shared<tm_bus_cfg_t>();
   flow_ctrl_cfg->num_targets = cfg_->num_targets;
+  flow_ctrl_cfg->global_osd = cfg_->global_osd;
   flow_ctrl_cfg->targets = cfg_->targets;
   flow_ctrl_->config(flow_ctrl_cfg);
 
@@ -219,6 +220,18 @@ bool TmRingFabric::idle() {
     ret = ret && it.second->idle();
   }
   return ret;
+}
+
+uint64_t TmRingFabric::global_osd_stalls() const {
+  return flow_ctrl_ == nullptr ? 0 : flow_ctrl_->global_osd_stalls();
+}
+
+uint64_t TmRingFabric::target_slot_stalls() const {
+  return flow_ctrl_ == nullptr ? 0 : flow_ctrl_->target_slot_stalls();
+}
+
+uint64_t TmRingFabric::bandwidth_token_stalls() const {
+  return flow_ctrl_ == nullptr ? 0 : flow_ctrl_->bandwidth_token_stalls();
 }
 
 void TmRingFabric::attach_master(uint32_t idx, p_tm_ring_inf_t inf) {

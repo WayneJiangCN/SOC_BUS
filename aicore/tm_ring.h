@@ -70,6 +70,9 @@ class TmRingFabric : public tm_engine::TmModule
     virtual bool completed(uint32_t master_port, uint32_t req_id);
     virtual bool canSendRdReq(uint32_t master_port);
     virtual bool canSendWrReq(uint32_t master_port);
+    uint64_t global_osd_stalls() const;
+    uint64_t target_slot_stalls() const;
+    uint64_t bandwidth_token_stalls() const;
 
   protected:
     tm_engine::p_tm_clk_t clk_ = nullptr;

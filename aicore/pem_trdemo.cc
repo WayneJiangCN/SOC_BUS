@@ -1,5 +1,7 @@
 #include "pem_trdemo.h"
 
+#include <algorithm>
+
 //----------------------------------------------------------------------------------------
 PemTrDemo::PemTrDemo(const std::string &name, tm_engine::p_tm_clk_t clk)
     : TmModule(name), clk_(clk)
@@ -68,7 +70,8 @@ void PemTrDemo::build()
 bool PemTrDemo::idle()
 {
     return instr_que_->empty() && uop_que_->empty() && pipe_que_->empty() &&
-           pair_buffer_.empty() &&
+           pair_buffer_.empty() && read_issue_cycles_.empty() &&
+           write_buffer_ids_.empty() && write_issue_cycles_.empty() &&
            free_write_buf_ids_.size() == WRITE_BUF_POOL_SIZE &&
            read_port_->idle() && write_port_->idle();
 }
@@ -77,6 +80,10 @@ void PemTrDemo::reset()
 {
     current_uop_count_ = 0;
     pair_buffer_.clear();
+    read_issue_cycles_.clear();
+    write_buffer_ids_.clear();
+    write_issue_cycles_.clear();
+    stats_ = PemTrDemoStats{};
     while (!free_write_buf_ids_.empty())
     {
         free_write_buf_ids_.pop();
@@ -129,11 +136,21 @@ void PemTrDemo::read_mem()
     if (read_port_->send(rd_pld))
     {
         uop_que_->pop_front();
+        const uint64_t now = static_cast<uint64_t>(time());
+        read_issue_cycles_[uop->addr] = now;
+        ++stats_.read_requests;
+        stats_.read_bytes += uop->size;
+        if (!stats_.has_first_read_cycle)
+        {
+            stats_.first_read_cycle = now;
+            stats_.has_first_read_cycle = true;
+        }
         PEM_LOG_INFO(rd_log_, "M2,time:{2:d} ,  发送读请求,UOP[{0:d}], 地址=0x{1:x}",
                      uop->req_id, uop->addr, time());
     }
     else
     {
+        ++stats_.read_send_stalls;
         PEM_LOG_INFO(rd_log_, "time:{0:d},read_port_->send失败", time());
     }
 }
@@ -149,7 +166,10 @@ void PemTrDemo::recv_rsp()
     uint32_t req_id = (rd_resp->addr - start_addr_) / BAND_WIDTH;
     bool success = handle_read_response(rd_resp);
     if (success)
+    {
+        record_read_response(rd_resp->addr);
         read_port_->pop_pld();
+    }
     else
         std::cout << "WARNING: 读响应处理失败，req_id=" << req_id << std::endl;
 }
@@ -157,12 +177,29 @@ bool PemTrDemo::handle_read_response(p_tm_pld_t rd_resp)
 {
     uint64_t addr = rd_resp->addr;
     uint32_t size = rd_resp->size;
+    if (addr < start_addr_ || (addr - start_addr_) % BAND_WIDTH != 0 ||
+        size != BAND_WIDTH)
+    {
+        ++stats_.protocol_errors;
+        PEM_LOG_ERROR(rd_log_,
+                      "Invalid RD response: addr=0x{0:x}, size={1:d}",
+                      addr, size);
+        return false;
+    }
     uint32_t req_id = (addr - start_addr_) / BAND_WIDTH;
+    if (req_id >= total_uop_count_)
+    {
+        ++stats_.protocol_errors;
+        PEM_LOG_ERROR(rd_log_, "RD response req_id out of range: {0:d}",
+                      req_id);
+        return false;
+    }
     uint64_t wr_addr = end_addr_ + (req_id / 2) * sizeof(uint32_t);
     PEM_LOG_INFO(log_, "Pair[{0:x}] req_id:{1:d},pair_buffer_.size():{2:d}", wr_addr, req_id, pair_buffer_.size());
     PEM_LOG_INFO(rd_log_, "time:{0:d},Pair[{1:x}] 到达 (req_id={2:d})", time(), wr_addr, req_id);
     if (rd_resp->data == nullptr)
     {
+        ++stats_.protocol_errors;
         PEM_LOG_ERROR(rd_log_, "RD response data is nullptr, req_id={0:d}", req_id);
         return false;
     }
@@ -174,6 +211,7 @@ bool PemTrDemo::handle_read_response(p_tm_pld_t rd_resp)
     {
         if (pair_buffer_.size() >= max_pair_entries_)
         {
+            ++stats_.read_response_stalls;
             PEM_LOG_ERROR(rd_log_, "Pair Buffer 已满，无法处理 req_id={{0:d}}", req_id);
             return false;
         }
@@ -187,7 +225,10 @@ bool PemTrDemo::handle_read_response(p_tm_pld_t rd_resp)
         return true;
     }
     if (pipe_que_->full())
+    {
+        ++stats_.read_response_stalls;
         return false;
+    }
     PairEntry &entry = it->second;
     if (!entry.has_data)
     {
@@ -208,6 +249,7 @@ bool PemTrDemo::handle_read_response(p_tm_pld_t rd_resp)
     if (!pipe_que_->full())
     {
         pipe_que_->push_back(result_uop);
+        ++stats_.completed_pairs;
         PEM_LOG_INFO(log_, "Pair[{0:x}] 累加完成, 结果={1:d}", wr_addr, sum);
     }
     else
@@ -219,6 +261,26 @@ bool PemTrDemo::handle_read_response(p_tm_pld_t rd_resp)
     return true;
 }
 
+void PemTrDemo::record_read_response(uint64_t addr)
+{
+    ++stats_.read_responses;
+    auto it = read_issue_cycles_.find(addr);
+    if (it == read_issue_cycles_.end())
+    {
+        ++stats_.protocol_errors;
+        return;
+    }
+
+    const uint64_t now = static_cast<uint64_t>(time());
+    const uint64_t latency = now - it->second;
+    stats_.last_read_response_cycle = now;
+    stats_.has_last_read_response_cycle = true;
+    stats_.read_latency_sum += latency;
+    stats_.read_latency_min = std::min(stats_.read_latency_min, latency);
+    stats_.read_latency_max = std::max(stats_.read_latency_max, latency);
+    read_issue_cycles_.erase(it);
+}
+
 void PemTrDemo::pipeline()
 {
     if (pipe_que_->empty())
@@ -227,6 +289,7 @@ void PemTrDemo::pipeline()
     uint32_t buf_id = allocate_write_buf();
     if (buf_id == UINT32_MAX)
     {
+        ++stats_.write_buffer_stalls;
         // std::cout << "ERROR: buf_id is nullptr!" << std::endl;
         return;
     }
@@ -240,11 +303,17 @@ void PemTrDemo::pipeline()
     if (write_port_->send(wr_pld))
     {
         pipe_que_->pop_front();
+        const uint64_t now = static_cast<uint64_t>(time());
+        write_buffer_ids_[wr_pld->gid] = buf_id;
+        write_issue_cycles_[wr_pld->gid] = now;
+        ++stats_.write_requests;
+        stats_.write_bytes += uop->size;
         PEM_LOG_INFO(wr_log_, "M4,time:{3:d},size : {0:d}, 地址=0x{1:x}, 数据={2:d}",
                      wr_pld->size, uop->addr, value, time());
     }
     else
     {
+        ++stats_.write_send_stalls;
         release_write_buf(buf_id);
         std::cout << "write_port_->send失败" << std::endl;
     }
@@ -262,10 +331,32 @@ void PemTrDemo::wr_recv_rsp()
     auto wr_resp = write_port_->pop_pld();
     if (wr_resp == nullptr)
     {
+        ++stats_.protocol_errors;
         std::cout << "ERROR: recv_rsp() - rd_resp is nullptr!" << std::endl;
         return;
     }
-    uint32_t buf_id = wr_resp->tnx_id; // 取出之前存入的 ID
+    auto buffer_it = write_buffer_ids_.find(wr_resp->gid);
+    auto cycle_it = write_issue_cycles_.find(wr_resp->gid);
+    uint32_t buf_id = 0;
+    if (buffer_it == write_buffer_ids_.end() ||
+        cycle_it == write_issue_cycles_.end())
+    {
+        ++stats_.protocol_errors;
+        std::cout << "ERROR: unexpected write response gid=" << wr_resp->gid
+                  << std::endl;
+        return;
+    }
+    buf_id = buffer_it->second;
+    const uint64_t now = static_cast<uint64_t>(time());
+    const uint64_t latency = now - cycle_it->second;
+    stats_.write_latency_sum += latency;
+    stats_.write_latency_min = std::min(stats_.write_latency_min, latency);
+    stats_.write_latency_max = std::max(stats_.write_latency_max, latency);
+    ++stats_.write_responses;
+    stats_.last_write_response_cycle = now;
+    stats_.has_last_write_response_cycle = true;
+    write_buffer_ids_.erase(buffer_it);
+    write_issue_cycles_.erase(cycle_it);
     release_write_buf(buf_id);
     PEM_LOG_INFO(wr_log_, "M4,time:{3:d},size : {0:d}, 地址=0x{1:x}, 数据={2:d}",
                  wr_resp->size, wr_resp->addr, wr_resp->data == nullptr ? 0 : wr_resp->data[0], time());

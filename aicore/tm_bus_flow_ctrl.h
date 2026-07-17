@@ -22,7 +22,7 @@ class TmBusFlowCtrl
     void update_tokens(tm_engine::tm_time_t now);
 
     bool can_send_to_target(uint32_t target_id, aic_req_type_t req_type,
-                            p_tm_pld_t pld) const;
+                            p_tm_pld_t pld);
 
 
     void consume_target_credit(uint32_t target_id, aic_req_type_t req_type,
@@ -34,6 +34,12 @@ class TmBusFlowCtrl
     uint32_t calc_rsp_busy_cycles(uint32_t target_id, p_tm_pld_t pld,
                                   aic_req_type_t rsp_type) const;
     uint32_t target_outstanding(uint32_t target_id) const;
+    uint64_t global_osd_stalls() const { return global_osd_stalls_; }
+    uint64_t target_slot_stalls() const { return target_slot_stalls_; }
+    uint64_t bandwidth_token_stalls() const
+    {
+        return bandwidth_token_stalls_;
+    }
 
   private:
     uint32_t calc_payload_cycles(uint32_t width, uint32_t size) const;
@@ -50,6 +56,10 @@ class TmBusFlowCtrl
     std::vector<uint32_t> rd_bw_token_;
     std::vector<uint32_t> wr_bw_token_;
     std::vector<uint32_t> target_outstanding_;
+    uint32_t global_outstanding_ = 0;
+    uint64_t global_osd_stalls_ = 0;
+    uint64_t target_slot_stalls_ = 0;
+    uint64_t bandwidth_token_stalls_ = 0;
     tm_engine::tm_time_t last_token_update_time_ =
         static_cast<tm_engine::tm_time_t>(-1);
 };

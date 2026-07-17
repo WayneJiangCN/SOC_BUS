@@ -93,6 +93,7 @@ struct TmBusCfg
     uint32_t ring_link_latency = 1;
 
     bool strict_wr_grant_order = true;
+    uint32_t global_osd = 128;
 
     std::vector<p_tm_bus_target_cfg_t> targets;
 };
