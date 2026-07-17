@@ -781,12 +781,23 @@ run_demo(const std::string& cfg_file_name, const RingDemoConfig& test_case)
                 std::max(global_last_read_cycle,
                          stat.last_read_response_cycle);
         }
-        if (stat.has_first_read_cycle && stat.has_last_write_response_cycle &&
-            stat.last_write_response_cycle >= stat.first_read_cycle) {
-            active_cycles = stat.last_write_response_cycle -
-                            stat.first_read_cycle + 1;
-            global_last_cycle =
-                std::max(global_last_cycle, stat.last_write_response_cycle);
+        uint64_t last_response_cycle = 0;
+        bool has_last_response_cycle = false;
+        if (stat.has_last_read_response_cycle) {
+            last_response_cycle =
+                std::max(last_response_cycle, stat.last_read_response_cycle);
+            has_last_response_cycle = true;
+        }
+        if (stat.has_last_write_response_cycle) {
+            last_response_cycle =
+                std::max(last_response_cycle, stat.last_write_response_cycle);
+            has_last_response_cycle = true;
+        }
+        if (stat.has_first_read_cycle && has_last_response_cycle &&
+            last_response_cycle >= stat.first_read_cycle) {
+            active_cycles = last_response_cycle - stat.first_read_cycle + 1;
+            global_last_cycle = std::max(global_last_cycle,
+                                         last_response_cycle);
         }
         const uint64_t payload_bytes =
             stat.read_responses * BAND_WIDTH +

@@ -48,6 +48,8 @@ void TmRingRouter::config(const std::string& name, p_tm_clk_t clk,
   uint32_t rr_init_slot = tm_ring_port_count() * traffic_slot_count() - 1;
   output_rr_ptr_.assign(tm_ring_port_count() * tm_ring_subnet_count(),
                         rr_init_slot);
+  input_rr_ptr_.assign(tm_ring_port_count() * tm_ring_subnet_count(),
+                       traffic_slot_count() - 1);
   uint32_t chan_num = tm_ring_packet_channel_count(cfg_->rd_rsp_port_num);
 
   for (uint32_t port = 0; port < 2; ++port) {
@@ -89,6 +91,8 @@ void TmRingRouter::reset() {
   uint32_t rr_init_slot = tm_ring_port_count() * traffic_slot_count() - 1;
   output_rr_ptr_.assign(tm_ring_port_count() * tm_ring_subnet_count(),
                         rr_init_slot);
+  input_rr_ptr_.assign(tm_ring_port_count() * tm_ring_subnet_count(),
+                       traffic_slot_count() - 1);
 }
 
 bool TmRingRouter::idle() const {
@@ -322,7 +326,13 @@ p_tm_ring_candidate_t TmRingRouter::select_input_candidate(TmRingPortDir in_dir,
                                                            TmRingSubnet subnet) {
   auto candidate = std::make_shared<tm_ring_candidate_t>();
   uint32_t class_num = traffic_slot_count();
-  for (uint32_t slot_class = 0; slot_class < class_num; ++slot_class) {
+  uint32_t subnet_idx = tm_ring_subnet_index(subnet);
+  uint32_t in_idx =
+      subnet_idx * tm_ring_port_count() + tm_ring_port_index(in_dir);
+  uint32_t last_slot =
+      in_idx < input_rr_ptr_.size() ? input_rr_ptr_[in_idx] : class_num - 1;
+  for (uint32_t offset = 1; offset <= class_num; ++offset) {
+    uint32_t slot_class = (last_slot + offset) % class_num;
     uint32_t cls;
     uint32_t lane;
     decode_slot(slot_class, cls, lane);
@@ -387,8 +397,13 @@ void TmRingRouter::commit_packet(TmRingSubnet subnet,
                                  p_tm_ring_candidate_t candidate) {
   auto pld = candidate->pld;
   uint32_t subnet_idx = tm_ring_subnet_index(subnet);
+  uint32_t in_idx =
+      subnet_idx * tm_ring_port_count() + tm_ring_port_index(candidate->in_dir);
   uint32_t out_idx =
       subnet_idx * tm_ring_port_count() + tm_ring_port_index(candidate->out_dir);
+  if (in_idx < input_rr_ptr_.size()) {
+    input_rr_ptr_[in_idx] = candidate->slot_id % traffic_slot_count();
+  }
   output_rr_ptr_[out_idx] = candidate->slot_id;
 
   auto in_inf = inf_for_class(candidate->in_dir, pld->ring_traffic_class,

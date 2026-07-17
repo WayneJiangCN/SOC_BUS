@@ -84,6 +84,7 @@ class TmRingRouter : public tm_engine::TmModule
     std::vector<p_tm_com_inf_t> port_infs_;
 
     std::vector<uint32_t> output_rr_ptr_;
+    std::vector<uint32_t> input_rr_ptr_;
     uint32_t router_id_ = 0;
     std::shared_ptr<TmRingTopology> topology_ = nullptr;
     p_tm_ring_link_t east_link_ = nullptr;
