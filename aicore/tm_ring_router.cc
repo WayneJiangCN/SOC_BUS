@@ -52,9 +52,10 @@ void TmRingRouter::config(const std::string& name, p_tm_clk_t clk,
 
   for (uint32_t port = 0; port < 2; ++port) {
     auto dir = ring_port_dir(port);
-    auto inf = tm_ring_make_event_inf(
+    auto inf = tm_make_com_inf(
         clk_, name_ + "_port_inf_" +
-                  std::to_string(tm_ring_port_index(dir)));
+                  std::to_string(tm_ring_port_index(dir)),
+        cfg_->master_inf_depth);
     inf->set_chan_num(chan_num);
     port_infs_.push_back(inf);
   }
@@ -128,8 +129,9 @@ void TmRingRouter::bind_local_master(uint32_t master_port,
     local_master_infs_.resize(master_port + 1, nullptr);
   }
   if (local_master_infs_[master_port] == nullptr) {
-    local_master_infs_[master_port] = tm_ring_make_event_inf(
-        clk_, name_ + "_local_master_inf_" + std::to_string(master_port));
+    local_master_infs_[master_port] = tm_make_com_inf(
+        clk_, name_ + "_local_master_inf_" + std::to_string(master_port),
+        cfg_->master_inf_depth);
     local_master_infs_[master_port]->set_chan_num(
         tm_ring_packet_channel_count(cfg_->rd_rsp_port_num));
     tm_sensitive(TM_MAKE_CPROC(&TmRingRouter::route_local_request),
@@ -146,8 +148,9 @@ void TmRingRouter::bind_local_target(uint32_t target_id,
     local_target_infs_.resize(target_id + 1, nullptr);
   }
   if (local_target_infs_[target_id] == nullptr) {
-    local_target_infs_[target_id] = tm_ring_make_event_inf(
-        clk_, name_ + "_local_target_inf_" + std::to_string(target_id));
+    local_target_infs_[target_id] = tm_make_com_inf(
+        clk_, name_ + "_local_target_inf_" + std::to_string(target_id),
+        cfg_->target_inf_depth);
     local_target_infs_[target_id]->set_chan_num(
         tm_ring_packet_channel_count(cfg_->rd_rsp_port_num));
     tm_sensitive(TM_MAKE_CPROC(&TmRingRouter::route_local_response),

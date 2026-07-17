@@ -45,7 +45,8 @@ void TmRingLink::config(const std::string& name, p_tm_clk_t clk,
   max_inflight_[tm_ring_subnet_index(TmRingSubnet::RSP)] =
       std::max<uint32_t>(1, cfg_->ring_rsp_link_max_inflight);
 
-  dst_out_inf_ = tm_ring_make_event_inf(clk_, name_ + "_dst_out_inf");
+  dst_out_inf_ = tm_make_com_inf(clk_, name_ + "_dst_out_inf",
+                                 cfg_->target_inf_depth);
   dst_out_inf_->set_chan_num(
       tm_ring_packet_channel_count(cfg_->rd_rsp_port_num));
 

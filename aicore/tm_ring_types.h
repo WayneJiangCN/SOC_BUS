@@ -101,13 +101,6 @@ inline constexpr uint32_t tm_ring_packet_channel_count(
   return tm_ring_base_packet_channel_count() + rd_rsp_port_num - 1;
 }
 
-inline p_tm_com_inf_t tm_ring_make_event_inf(tm_engine::p_tm_clk_t clk,
-                                             const std::string& name) {
-  // Ring-internal TmInf is only a valid/ready event boundary.
-  // Propagation latency is modeled by TmRingLink's tm_que delay.
-  return tm_make_com_inf(clk, 1, 0, 0, name);
-}
-
 inline constexpr TmRingPortDir tm_ring_opposite_dir(TmRingPortDir dir) {
   switch (dir) {
     case TmRingPortDir::EAST:
