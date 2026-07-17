@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -330,6 +331,53 @@ parse_options(int argc, char** argv, RingDemoConfig* tc, std::string* error)
 }
 
 inline bool
+validate_config(const RingDemoConfig& tc, std::string* error);
+
+inline bool
+parse_option_string(const std::string& options, RingDemoConfig* tc,
+                    std::string* error)
+{
+    std::istringstream input(options);
+    std::string token;
+    while (input >> token) {
+        if (token == "--require-perf-target") {
+            tc->require_performance_target = true;
+            continue;
+        }
+        if (token.rfind("--", 0) != 0) {
+            *error = "unexpected option token: " + token;
+            return false;
+        }
+
+        std::string name = token;
+        std::string value;
+        const size_t equal = token.find('=');
+        if (equal != std::string::npos) {
+            name = token.substr(0, equal);
+            value = token.substr(equal + 1);
+        } else if (!(input >> value)) {
+            *error = "missing value for option: " + name;
+            return false;
+        }
+        if (!apply_option(name, value, tc, error)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+inline bool
+apply_utest_options(RingDemoConfig* tc, std::string* error)
+{
+    const char* options_env = std::getenv("TM_RING_DEMO_OPTIONS");
+    if (options_env != nullptr && *options_env != '\0' &&
+        !parse_option_string(options_env, tc, error)) {
+        return false;
+    }
+    return validate_config(*tc, error);
+}
+
+inline bool
 validate_config(const RingDemoConfig& tc, std::string* error)
 {
     if (tc.num_masters == 0 || tc.num_targets == 0 ||
@@ -606,6 +654,7 @@ latency_min_or_zero(uint64_t count, uint64_t value)
     return count == 0 ? 0 : value;
 }
 
+template <typename DemoT>
 inline int
 run_demo(const std::string& cfg_file_name, const RingDemoConfig& test_case)
 {
@@ -640,7 +689,7 @@ run_demo(const std::string& cfg_file_name, const RingDemoConfig& test_case)
     ring->build();
 
     std::vector<p_pem_biu_t> bius;
-    std::vector<std::shared_ptr<PemTrDemo>> demos;
+    std::vector<std::shared_ptr<DemoT>> demos;
     for (uint32_t master = 0; master < test_case.num_masters; ++master) {
         auto biu = std::make_shared<pem_biu_t>(
             "biu" + std::to_string(master), clk,
@@ -654,7 +703,7 @@ run_demo(const std::string& cfg_file_name, const RingDemoConfig& test_case)
             kDemoSrcAddr + master * kMasterAddrStride;
         const uint64_t dst_addr =
             kDemoDstAddr + master * kMasterAddrStride;
-        auto demo = std::make_shared<PemTrDemo>(
+        auto demo = std::make_shared<DemoT>(
             "pem_trdemo" + std::to_string(master), clk);
         demo->configure_traffic(
             src_addr, dst_addr, test_case.uops_per_master);
@@ -1060,7 +1109,7 @@ run(int argc, char** argv)
         std::cerr << "Invalid demo configuration: " << error << std::endl;
         return 2;
     }
-    return run_demo(cfg_file_name, test_case);
+    return run_demo<PemTrDemo>(cfg_file_name, test_case);
 }
 
 }  // namespace tm_ring_demo

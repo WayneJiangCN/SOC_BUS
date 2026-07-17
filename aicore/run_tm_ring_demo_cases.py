@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -16,6 +17,10 @@ DEFAULT_CASES = (
     "multi_target_linear",
     "backpressure",
 )
+
+GTEST_CASE_NAMES = {
+    "multi_master": "utest",
+}
 
 
 def parse_key_value_line(line: str) -> tuple[str, dict[str, str]] | None:
@@ -31,9 +36,20 @@ def parse_key_value_line(line: str) -> tuple[str, dict[str, str]] | None:
 
 
 def run_case(
-    executable: str, config: str, case: str, sim_args: list[str]
+    executable: str,
+    config: str,
+    case: str,
+    sim_args: list[str],
+    entry: str,
+    suite: str,
 ) -> dict[str, object]:
-    command = [executable, config, case] + sim_args
+    environment = os.environ.copy()
+    if entry == "gtest":
+        test_name = GTEST_CASE_NAMES.get(case, case)
+        command = [executable, f"--gtest_filter={suite}.{test_name}"]
+        environment["TM_RING_DEMO_OPTIONS"] = " ".join(sim_args)
+    else:
+        command = [executable, config, case] + sim_args
     completed = subprocess.run(
         command,
         stdout=subprocess.PIPE,
@@ -41,6 +57,7 @@ def run_case(
         text=True,
         errors="replace",
         check=False,
+        env=environment,
     )
     parsed: dict[str, dict[str, str]] = {}
     for line in completed.stdout.splitlines():
@@ -207,8 +224,7 @@ def print_comparisons(runs: list[dict[str, object]]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("executable", help="path to test_prj")
-    parser.add_argument("config", help="path to pem_config_cloud.toml")
+    parser.add_argument("executable", help="path to test_prj or run.sh")
     parser.add_argument(
         "cases",
         nargs="*",
@@ -216,6 +232,22 @@ def main() -> int:
         help="cases to run (default: all four)",
     )
     parser.add_argument("--json", dest="json_path", help="write full results JSON")
+    parser.add_argument(
+        "--entry",
+        choices=("gtest", "argv"),
+        default="gtest",
+        help="test entry style (default: gtest)",
+    )
+    parser.add_argument(
+        "--config",
+        default="pem_config_cloud.toml",
+        help="config path for argv entry; ignored by gtest entry",
+    )
+    parser.add_argument(
+        "--suite",
+        default="pem",
+        help="GTest suite name (default: pem)",
+    )
     parser.add_argument(
         "--sim-arg",
         action="append",
@@ -234,7 +266,14 @@ def main() -> int:
         print(f"running {case} ...", flush=True)
         try:
             runs.append(
-                run_case(args.executable, args.config, case, args.sim_arg)
+                run_case(
+                    args.executable,
+                    args.config,
+                    case,
+                    args.sim_arg,
+                    args.entry,
+                    args.suite,
+                )
             )
         except OSError as error:
             print(f"failed to start {args.executable}: {error}", file=sys.stderr)
