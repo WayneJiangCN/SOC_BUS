@@ -19,17 +19,19 @@ BIU / API
 
 ## 推荐阅读顺序
 
-1. [code_organization.md](./code_organization.md)
+1. [AI Core Ring-Lite 总线模型方案与架构](../ai_core_bus_v1_design.md)
+   先了解模型定位、总体架构、事务路径、流控机制和性能精度边界。
+2. [code_organization.md](./code_organization.md)
    先看代码分层、主要文件和阅读入口。
-2. [ring_module_resources.md](./ring_module_resources.md)
+3. [ring_module_resources.md](./ring_module_resources.md)
    重点看每个模块持有哪些资源，以及模块之间如何连接。
-3. [ring_fabric_design.md](./ring_fabric_design.md)
+4. [ring_fabric_design.md](./ring_fabric_design.md)
    再看 `TmRingFabric` 如何创建和连接整张网络。
-4. [port_based_router_design.md](./port_based_router_design.md)
+5. [port_based_router_design.md](./port_based_router_design.md)
    继续看 Router/Link 的端口化设计。
-5. [arbitration.md](./arbitration.md)
+6. [arbitration.md](./arbitration.md)
    如果关心多输入竞争同一输出口，重点看仲裁。
-6. [performance_and_alignment.md](./performance_and_alignment.md)
+7. [performance_and_alignment.md](./performance_and_alignment.md)
    如果关心性能趋势、瓶颈和真实硬件对齐，重点看这页。
 
 ## 术语
