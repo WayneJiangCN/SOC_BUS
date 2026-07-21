@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="800" viewBox="0 0 1400 800">
+<defs>
+<marker id="a-blue" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#2563EB"/></marker>
+<marker id="a-orange" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#D97706"/></marker>
+<marker id="a-green" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#059669"/></marker>
+<marker id="a-gray" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#64748B"/></marker>
+<marker id="a-red" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#C2413B"/></marker>
+<style>.t{font-family:"Microsoft YaHei","Noto Sans CJK SC",Arial,sans-serif;fill:#1F2937}.s{font-size:18px}.m{font-size:21px;font-weight:600}.h{font-size:30px;font-weight:700}.sub{font-size:17px;fill:#475569}.tiny{font-size:15px;fill:#475569}</style>
+</defs>
+<rect x="0" y="0" width="1400" height="800" fill="#FFFFFF"/>
+<text x="48" y="48" class="t h">端到端延迟分解与关键瓶颈</text>
+<text x="48" y="78" class="t sub">每一类时延只在唯一资源所有者处记账；固定传播与序列化占用不重复叠加</text>
+<rect x="55" y="180" width="145" height="150" rx="4" fill="#F8FAFC" stroke="#64748B" stroke-width="2"/>
+<text x="127.5" y="209" text-anchor="middle" class="t m" style="font-size:17px">源端准入</text>
+<text x="127.5" y="238" text-anchor="middle" class="t tiny">T_osd</text>
+<text x="127.5" y="262" text-anchor="middle" class="t tiny">T_src_q</text>
+<rect x="230" y="180" width="145" height="150" rx="4" fill="#F8FAFC" stroke="#64748B" stroke-width="2"/>
+<text x="302.5" y="209" text-anchor="middle" class="t m" style="font-size:17px">注入与仲裁</text>
+<text x="302.5" y="238" text-anchor="middle" class="t tiny">T_inj</text>
+<text x="302.5" y="262" text-anchor="middle" class="t tiny">T_arb</text>
+<rect x="405" y="180" width="145" height="150" rx="4" fill="#F8FAFC" stroke="#64748B" stroke-width="2"/>
+<text x="477.5" y="209" text-anchor="middle" class="t m" style="font-size:17px">逐跳Router</text>
+<text x="477.5" y="238" text-anchor="middle" class="t tiny">ΣT_router</text>
+<text x="477.5" y="262" text-anchor="middle" class="t tiny">ΣT_hop_q</text>
+<rect x="580" y="180" width="145" height="150" rx="4" fill="#F8FAFC" stroke="#64748B" stroke-width="2"/>
+<text x="652.5" y="209" text-anchor="middle" class="t m" style="font-size:17px">逐跳Link</text>
+<text x="652.5" y="238" text-anchor="middle" class="t tiny">ΣT_prop</text>
+<text x="652.5" y="262" text-anchor="middle" class="t tiny">ΣT_ser</text>
+<rect x="755" y="180" width="145" height="150" rx="4" fill="#F8FAFC" stroke="#64748B" stroke-width="2"/>
+<text x="827.5" y="209" text-anchor="middle" class="t m" style="font-size:17px">Target入口</text>
+<text x="827.5" y="238" text-anchor="middle" class="t tiny">T_tgt_q</text>
+<text x="827.5" y="262" text-anchor="middle" class="t tiny">T_credit</text>
+<rect x="930" y="180" width="145" height="150" rx="4" fill="#F8FAFC" stroke="#64748B" stroke-width="2"/>
+<text x="1002.5" y="209" text-anchor="middle" class="t m" style="font-size:17px">Target服务</text>
+<text x="1002.5" y="238" text-anchor="middle" class="t tiny">T_service</text>
+<text x="1002.5" y="262" text-anchor="middle" class="t tiny">T_bank</text>
+<rect x="1105" y="180" width="190" height="150" rx="4" fill="#F8FAFC" stroke="#64748B" stroke-width="2"/>
+<text x="1200.0" y="209" text-anchor="middle" class="t m" style="font-size:17px">响应回程</text>
+<text x="1200.0" y="238" text-anchor="middle" class="t tiny">T_rsp_q</text>
+<text x="1200.0" y="262" text-anchor="middle" class="t tiny">T_rsp_path</text>
+<polyline points="200,255 230,255" fill="none" stroke="#2563EB" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="375,255 405,255" fill="none" stroke="#2563EB" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="550,255 580,255" fill="none" stroke="#2563EB" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="725,255 755,255" fill="none" stroke="#2563EB" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="900,255 930,255" fill="none" stroke="#2563EB" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="1075,255 1105,255" fill="none" stroke="#2563EB" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<rect x="85" y="410" width="270" height="150" rx="4" fill="#FFF7ED" stroke="#B45F06" stroke-width="2"/>
+<text x="220.0" y="439" text-anchor="middle" class="t m" style="font-size:18px">容量瓶颈：源端</text>
+<text x="220.0" y="468" text-anchor="middle" class="t tiny">OSD &lt; 带宽时延积</text>
+<text x="220.0" y="492" text-anchor="middle" class="t tiny">注入端口带宽不足</text>
+<text x="220.0" y="516" text-anchor="middle" class="t tiny">流量源无法持续供给</text>
+<rect x="395" y="410" width="270" height="150" rx="4" fill="#FFF7ED" stroke="#B45F06" stroke-width="2"/>
+<text x="530.0" y="439" text-anchor="middle" class="t m" style="font-size:18px">容量瓶颈：Ring最小割</text>
+<text x="530.0" y="468" text-anchor="middle" class="t tiny">热点链路利用率≈100%</text>
+<text x="530.0" y="492" text-anchor="middle" class="t tiny">仲裁等待与FIFO占用上升</text>
+<text x="530.0" y="516" text-anchor="middle" class="t tiny">方向/映射不均衡</text>
+<rect x="705" y="410" width="270" height="150" rx="4" fill="#FFF7ED" stroke="#B45F06" stroke-width="2"/>
+<text x="840.0" y="439" text-anchor="middle" class="t m" style="font-size:18px">容量瓶颈：Target</text>
+<text x="840.0" y="468" text-anchor="middle" class="t tiny">Credit长期接近0</text>
+<text x="840.0" y="492" text-anchor="middle" class="t tiny">服务队列增长</text>
+<text x="840.0" y="516" text-anchor="middle" class="t tiny">目标带宽/Bank冲突</text>
+<rect x="1015" y="410" width="300" height="150" rx="4" fill="#FFF7ED" stroke="#B45F06" stroke-width="2"/>
+<text x="1165.0" y="439" text-anchor="middle" class="t m" style="font-size:18px">容量瓶颈：响应路径</text>
+<text x="1165.0" y="468" text-anchor="middle" class="t tiny">读数据体量主导</text>
+<text x="1165.0" y="492" text-anchor="middle" class="t tiny">写授权/完成受阻</text>
+<text x="1165.0" y="516" text-anchor="middle" class="t tiny">回程共享资源饱和</text>
+<polyline points="220,410 220,330" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<polyline points="530,410 650,330" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<polyline points="840,410 840,330" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<polyline points="1165,410 1200,330" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<text x="700" y="625" text-anchor="middle" class="t m" style="fill:#1F4E79;">T_total = T_fixed + T_topology + T_serialization + T_arbitration + T_queue + T_target + T_return</text>
+<text x="700" y="660" text-anchor="middle" class="t s" style="">吞吐上界 = min(源端注入，Ring最小割，Target服务，响应带宽，OSD×有效载荷/平均RTT)</text>
+<polyline points="52,752 107,752" fill="none" stroke="#2563EB" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<text x="120" y="758" text-anchor="start" class="t tiny" style="">请求</text>
+<polyline points="242,752 297,752" fill="none" stroke="#D97706" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 6" marker-end="url(#a-orange)"/>
+<text x="310" y="758" text-anchor="start" class="t tiny" style="">写数据</text>
+<polyline points="432,752 487,752" fill="none" stroke="#059669" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 5" marker-end="url(#a-green)"/>
+<text x="500" y="758" text-anchor="start" class="t tiny" style="">响应</text>
+<polyline points="622,752 677,752" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<text x="690" y="758" text-anchor="start" class="t tiny" style="">配置/统计</text>
+<polyline points="812,752 867,752" fill="none" stroke="#C2413B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="2 6" marker-end="url(#a-red)"/>
+<text x="880" y="758" text-anchor="start" class="t tiny" style="">反压</text>
+</svg>

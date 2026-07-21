@@ -27,6 +27,7 @@ void TmRingLink::config(const std::string& name, p_tm_clk_t clk,
   log_para_t log_para(name_ + ".log");
   log_ = pem_log::create_logger(log_para);
   latency_ = latency;
+  // width_bytes_ 至少为 1，避免配置为 0 时出现序列化周期除零。
   width_bytes_ = std::max<uint32_t>(1, cfg_->ring_link_width_bytes);
   dst_router_ = dst_router;
   dst_dir_ = dst_dir;
@@ -35,6 +36,7 @@ void TmRingLink::config(const std::string& name, p_tm_clk_t clk,
                time(), latency_, dst_router_, tm_ring_port_index(dst_dir_),
                width_bytes_);
 
+  // REQ/RSP 子网独立占用发送资源和 in-flight 配额，彼此不会直接阻塞。
   inflight_packets_.clear();
   next_send_time_.assign(tm_ring_subnet_count(), 0);
   inflight_count_.assign(tm_ring_subnet_count(), 0);
@@ -45,11 +47,13 @@ void TmRingLink::config(const std::string& name, p_tm_clk_t clk,
   max_inflight_[tm_ring_subnet_index(TmRingSubnet::RSP)] =
       std::max<uint32_t>(1, cfg_->ring_rsp_link_max_inflight);
 
+  // dst_out_inf_ 只负责 Link 到下游 Router 的 valid/ready 交互。
   dst_out_inf_ = tm_make_com_inf(clk_, name_ + "_dst_out_inf",
                                  cfg_->target_inf_delay + 1);
   dst_out_inf_->set_chan_num(
       tm_ring_packet_channel_count(cfg_->rd_rsp_port_num));
 
+  // 两个 tm_que 是 Link 的真实在途缓存，delay 参数表达固定传播延迟。
   auto drain_proc = TM_MAKE_CPROC(&TmRingLink::drain_ready_packets);
   inflight_packets_.push_back(tm_make_que<p_tm_pld_t>(
       clk_, name_ + "_req_ready_packets",
@@ -57,6 +61,7 @@ void TmRingLink::config(const std::string& name, p_tm_clk_t clk,
   inflight_packets_.push_back(tm_make_que<p_tm_pld_t>(
       clk_, name_ + "_rsp_ready_packets",
       std::max<uint32_t>(1, cfg_->ring_rsp_fifo_depth), latency_));
+  // 数据达到队列可见时间后触发 drain；无需额外 retry_event_。
   for (auto& q : inflight_packets_) {
     tm_sensitive(drain_proc, q->vld);
   }
@@ -65,6 +70,7 @@ void TmRingLink::config(const std::string& name, p_tm_clk_t clk,
 }
 
 void TmRingLink::reset() {
+  // 传播队列、在途计数和序列化时间必须成组清理，防止资源状态不一致。
   dst_out_inf_->reset();
   std::fill(next_send_time_.begin(), next_send_time_.end(), 0);
   std::fill(inflight_count_.begin(), inflight_count_.end(), 0);
@@ -75,6 +81,7 @@ void TmRingLink::reset() {
 }
 
 bool TmRingLink::idle() const {
+  // 仅队列为空还不够，在途计数也必须归零，便于发现计数泄漏。
   bool ret = dst_out_inf_->idle();
   for (auto& q : inflight_packets_) {
     ret = ret && q->empty();
@@ -89,17 +96,29 @@ bool TmRingLink::can_send(p_tm_pld_t pld) {
   if (pld == nullptr) {
     return false;
   }
+  // Record one primary reason per rejected attempt so the counters can be
+  // added without double-counting. Priority follows the packet admission path.
   uint32_t idx = pld->ring_subnet;
-  const bool ready = time() >= next_send_time_[idx] &&
-                     !inflight_packets_[idx]->full() &&
-                     inflight_count_[idx] < max_inflight_[idx];
-  if (!ready) {
+  if (time() < next_send_time_[idx]) {
+    stats_[idx].serialization_busy_stall++;
     stats_[idx].send_reject_stall++;
+    return false;
   }
-  return ready;
+  if (inflight_count_[idx] >= max_inflight_[idx]) {
+    stats_[idx].inflight_limit_stall++;
+    stats_[idx].send_reject_stall++;
+    return false;
+  }
+  if (inflight_packets_[idx]->full()) {
+    stats_[idx].link_fifo_full_stall++;
+    stats_[idx].send_reject_stall++;
+    return false;
+  }
+  return true;
 }
 
 bool TmRingLink::send_pkt(p_tm_pld_t pld) {
+  // can_send 失败不改变任何状态，Router 会保留输入队头等待后续调度。
   if (!can_send(pld)) {
     return false;
   }
@@ -112,9 +131,11 @@ bool TmRingLink::send_pkt(p_tm_pld_t pld) {
 void TmRingLink::reserve_send(p_tm_pld_t pld) {
   uint32_t idx = pld->ring_subnet;
   uint32_t bytes = packet_bytes(pld);
+  // serialization_cycles 表示该 subnet 的发送器被当前 packet 占用多少周期。
   uint32_t serialization_cycles =
       std::max<uint32_t>(1, (bytes + width_bytes_ - 1) / width_bytes_);
 
+  // 传播延迟和序列化占用是两个概念：前者由 tm_que delay 表达，后者由时间戳表达。
   inflight_count_[idx]++;
   stats_[idx].packets++;
   stats_[idx].bytes += bytes;
@@ -130,6 +151,7 @@ void TmRingLink::reserve_send(p_tm_pld_t pld) {
 }
 
 void TmRingLink::enqueue_ready_packet(p_tm_pld_t pld) {
+  // 入队后需等待 latency_ 周期才会触发 drain_ready_packets()。
   uint32_t idx = pld->ring_subnet;
   inflight_packets_[idx]->push_back(pld);
   PEM_LOG_INFO(log_, "[{0:d}] enqueue subnet:{1:d} cmd:{2:d} gid:{3:d} "
@@ -143,13 +165,16 @@ uint32_t TmRingLink::packet_bytes(p_tm_pld_t pld) const {
     return 0;
   }
 
+  // RD/WR 仅传请求头，读取的数据长度不应占用请求 Link 带宽。
   auto cmd = static_cast<PldCmd>(pld->ring_traffic_class);
   if (cmd == PldCmd::RD || cmd == PldCmd::WR) {
     return cfg_->ring_req_header_bytes;
   }
+  // WR_DAT 和 RD_RSP 携带真实数据，序列化字节数采用 payload size。
   if (cmd == PldCmd::WR_DAT) {
     return pld->size;
   }
+  // 写 grant 和写完成响应都只按响应头计算。
   if (cmd == PldCmd::WR_RSP || cmd == PldCmd::RSP) {
     return cfg_->ring_rsp_header_bytes;
   }
@@ -162,6 +187,7 @@ const TmRingLink::LinkSubnetStats& TmRingLink::subnet_stats(
 }
 
 void TmRingLink::attach(p_tm_com_inf_t dst_inf) {
+  // dst_inf 是相邻 Router 与本 Link 方向相反的输入端口。
   dst_inf_ = dst_inf;
   dst_out_inf_->connect(dst_inf_);
   PEM_LOG_INFO(log_, "[{0:d}] attach_dst dst_router:{1:d} dst_dir:{2:d}",
@@ -174,10 +200,12 @@ uint32_t TmRingLink::dst_channel(p_tm_pld_t pld) const {
 }
 
 void TmRingLink::drain_ready_packets() {
+  // 每个子网分别搬运已到达的 packet，队头受阻不会影响另一子网。
   for (uint32_t idx = 0; idx < inflight_packets_.size(); ++idx) {
     auto& q = inflight_packets_[idx];
     while (q->valid() && !q->empty()) {
       auto pld = q->front();
+      // nullptr 是模型内部非法项：记录并清理，避免永久卡住整个 Link。
       if (pld == nullptr) {
         stats_[idx].null_payload_drop++;
         if (inflight_count_[idx] > 0) {
@@ -189,6 +217,7 @@ void TmRingLink::drain_ready_packets() {
         continue;
       }
 
+      // 未连接目的端口属于拓扑配置错误，正常 payload 不能被静默丢弃。
       if (dst_inf_ == nullptr) {
         stats_[idx].invalid_dst_stall++;
         std::cerr << name_ << ": missing destination inf for traffic_class "
@@ -196,6 +225,7 @@ void TmRingLink::drain_ready_packets() {
         assert(false && "TmRingLink missing destination inf");
         break;
       }
+      // 下游满时 break 且不 pop，队头继续保持有效并自然形成反压。
       if (!dst_out_inf_->send(dst_channel(pld), pld)) {
         stats_[idx].downstream_inf_full_stall++;
         PEM_LOG_INFO(log_, "[{0:d}] dst_full subnet:{1:d} cmd:{2:d} gid:{3:d}",
@@ -203,6 +233,7 @@ void TmRingLink::drain_ready_packets() {
         break;
       }
 
+      // 只有下游 Router 成功接收后，Link in-flight 才真正释放。
       if (inflight_count_[idx] > 0) {
         inflight_count_[idx]--;
       }

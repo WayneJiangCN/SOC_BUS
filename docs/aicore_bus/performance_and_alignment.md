@@ -1,5 +1,7 @@
 # 性能表现与硬件对齐度
 
+> 当前代码审计说明：模型已具备多跳 Link、有限队列、序列化、交织和 Target 反压的基础结构，但输出端统一仲裁、OSD 生命周期、Target 固定延迟/服务间隔拆分和资源级统计仍是 P0 差距。本文中的“适合约 80% 趋势建模”表示抽象层级目标，不表示已经相对 RTL 或硅数据达到 80% 性能精度；详细结论与验收门见 [AI Core 与 GPGPU-Sim 互连对比及需求收敛方案](../ai_core_interconnect_selection.md)。
+
 ## 文档目的
 
 这页只回答两个问题：
@@ -29,9 +31,9 @@
 当前模型保留了：
 
 - ring 节点位置
-- `LOCAL/NORTH/SOUTH/EAST/WEST` 端口
+- `LOCAL/EAST/WEST` 端口
 - `src_port -> dst_port` 的有向 link
-- link latency 和逐拍发射
+- link latency 和按 packet 字节数计算的序列化发射
 
 因此它能看出：
 
@@ -121,21 +123,20 @@ WR_REQ -> WR_REQ_RSP(grant) -> WR_DAT -> WR_DAT_RSP
 router 已经按：
 
 - `LOCAL`
-- `NORTH`
-- `SOUTH`
 - `EAST`
 - `WEST`
 
 拆开输入输出语义。真实硬件也是围绕方向 port 建模的，所以这一层的抽象是合理的。
 
-### 3. 链路逐拍发射
+### 3. 链路流水化发射
 
-link 现在不是“占一次锁整条边很多拍”，而是：
+link 现在不是把传播延迟直接当作整条边的不可用时间，而是：
 
-- 每拍最多发 1 个单位
-- 经过 latency 后到达
+- 以 `ceil(packet_bytes / link_width_bytes)` 计算同一子网的序列化间隔
+- packet 进入链路后，经过固定 `ring_link_latency` 到达下游
+- FIFO 和 max inflight 继续限制在途容量
 
-这比旧版粗粒度 hop time 更接近真实硬件的流水化链路。
+传播和序列化可以流水重叠。这比旧版粗粒度 hop time 更接近真实硬件，但仍是 packet/协议段级，不是 flit 级交错。
 
 ### 4. 目标端 backpressure
 
@@ -146,17 +147,18 @@ link 现在不是“占一次锁整条边很多拍”，而是：
 - target queue
 - outstanding 限制
 
-当前模型对这部分保留得比较完整，所以这一层和硬件对齐度反而是比较高的。
+当前模型已保留 Target FIFO、slot credit 和 bandwidth token，能够形成反压。需要注意，当前 `frontend/forward/header/payload/hotspot` 被合并为下一笔请求的 busy interval；固定事务延迟、服务间隔和经验惩罚尚未完全拆分，因此不能直接据此签核 Target 绝对延迟。
 
 ## 仍然是抽象的部分
 
 ### 1. output port 仍是事务级仲裁
 
-当前 output port 每拍只在 `REQ / WR_DAT / RSP` 之间选一个 winner，但发送单位还是“一个事务包”，不是 flit 或 beat。
+当前发送单位是“一个事务包/协议段”，不是 flit 或 beat。输入内部具有 traffic class 轮询，但跨输入的统一 output winner 选择尚未实现；同一拍争用结果可能受 callback 执行顺序影响。
 
 这意味着：
 
-- 竞争关系是对的
+- Link 有限容量能够产生竞争和反压
+- 严格输出公平性仍待实现
 - 发送粒度仍偏粗
 
 ### 2. 没有 flit / VC / credit
@@ -205,7 +207,7 @@ link 现在不是“占一次锁整条边很多拍”，而是：
 - 找关键瓶颈
 - 做 80% 左右趋势建模
 
-那么当前模型的对齐层次已经基本合适。
+那么当前模型选择的抽象层次基本合适，但必须先关闭输出仲裁、OSD 生命周期、延迟拆分、独立回归和精度校准等 P0 差距。
 
 建议把它看成：
 
@@ -232,4 +234,4 @@ link 现在不是“占一次锁整条边很多拍”，而是：
 
 ## 一句话总结
 
-当前模型已经足够接近“多 AI Core SoC 的轻量 NoC 性能模型”。它对结构、竞争、target 瓶颈和多跳路径的表达是可信的；它与真实硬件的主要差距，集中在 flit/VC/credit 和更细粒度的物理发送细节上。
+当前模型已经形成“多 AI Core SoC 轻量 NoC 性能模型”的结构基础，能够表达多跳路径、有限 Link 和 Target 反压。它尚不能签核多 Master 公平性、关键瓶颈位置或约 80% 性能精度；当前优先差距是输出端仲裁、OSD 生命周期、Target 延迟/服务拆分、资源级统计和对标闭环，flit/VC/credit 仅是后续由误差证据驱动的可选扩展。

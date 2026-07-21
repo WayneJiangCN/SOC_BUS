@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="800" viewBox="0 0 1400 800">
+<defs>
+<marker id="a-blue" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#2563EB"/></marker>
+<marker id="a-orange" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#D97706"/></marker>
+<marker id="a-green" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#059669"/></marker>
+<marker id="a-gray" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#64748B"/></marker>
+<marker id="a-red" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#C2413B"/></marker>
+<style>.t{font-family:"Microsoft YaHei","Noto Sans CJK SC",Arial,sans-serif;fill:#1F2937}.s{font-size:18px}.m{font-size:21px;font-weight:600}.h{font-size:30px;font-weight:700}.sub{font-size:17px;fill:#475569}.tiny{font-size:15px;fill:#475569}</style>
+</defs>
+<rect x="0" y="0" width="1400" height="800" fill="#FFFFFF"/>
+<text x="48" y="48" class="t h">性能精度校准与验收闭环</text>
+<text x="48" y="78" class="t sub">80%仅为目标；校准集与留出验收集严格隔离，结果按KPI分层而非单一平均误差解释</text>
+<rect x="55" y="145" width="220" height="135" rx="4" fill="#F8FAFC" stroke="#64748B" stroke-width="2"/>
+<text x="165.0" y="174" text-anchor="middle" class="t m" style="font-size:18px">基准定义</text>
+<text x="165.0" y="203" text-anchor="middle" class="t tiny">硬件/RTL配置快照</text>
+<text x="165.0" y="227" text-anchor="middle" class="t tiny">工作负载与测量窗口</text>
+<text x="165.0" y="251" text-anchor="middle" class="t tiny">参考统计与置信区间</text>
+<rect x="330" y="145" width="220" height="135" rx="4" fill="#F8FAFC" stroke="#64748B" stroke-width="2"/>
+<text x="440.0" y="174" text-anchor="middle" class="t m" style="font-size:18px">场景与数据集</text>
+<text x="440.0" y="203" text-anchor="middle" class="t tiny">零负载/饱和/热点</text>
+<text x="440.0" y="227" text-anchor="middle" class="t tiny">读写混合/OSD扫描</text>
+<text x="440.0" y="251" text-anchor="middle" class="t tiny">校准集与留出集</text>
+<rect x="605" y="145" width="220" height="135" rx="4" fill="#EEF4FA" stroke="#2E74B5" stroke-width="2"/>
+<text x="715.0" y="174" text-anchor="middle" class="t m" style="font-size:18px">模型执行</text>
+<text x="715.0" y="203" text-anchor="middle" class="t tiny">配置指纹</text>
+<text x="715.0" y="227" text-anchor="middle" class="t tiny">确定性随机种子</text>
+<text x="715.0" y="251" text-anchor="middle" class="t tiny">原始统计与事务追踪</text>
+<rect x="880" y="145" width="220" height="135" rx="4" fill="#F8FAFC" stroke="#64748B" stroke-width="2"/>
+<text x="990.0" y="174" text-anchor="middle" class="t m" style="font-size:18px">KPI对齐</text>
+<text x="990.0" y="203" text-anchor="middle" class="t tiny">吞吐/延迟分位数</text>
+<text x="990.0" y="227" text-anchor="middle" class="t tiny">饱和拐点/扩展趋势</text>
+<text x="990.0" y="251" text-anchor="middle" class="t tiny">瓶颈分类/公平性</text>
+<rect x="1155" y="145" width="190" height="135" rx="4" fill="#FFF7ED" stroke="#B45F06" stroke-width="2"/>
+<text x="1250.0" y="174" text-anchor="middle" class="t m" style="font-size:18px">误差分析</text>
+<text x="1250.0" y="203" text-anchor="middle" class="t tiny">结构误差</text>
+<text x="1250.0" y="227" text-anchor="middle" class="t tiny">参数误差</text>
+<text x="1250.0" y="251" text-anchor="middle" class="t tiny">随机误差</text>
+<polyline points="275,212 330,212" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<polyline points="550,212 605,212" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<polyline points="825,212 880,212" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<polyline points="1100,212 1155,212" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<rect x="1000" y="395" width="270" height="135" rx="4" fill="#FFF7ED" stroke="#B45F06" stroke-width="2"/>
+<text x="1135.0" y="424" text-anchor="middle" class="t m" style="font-size:18px">参数校准（仅校准集）</text>
+<text x="1135.0" y="453" text-anchor="middle" class="t tiny">固定时延/带宽</text>
+<text x="1135.0" y="477" text-anchor="middle" class="t tiny">队列/OSD/Credit</text>
+<text x="1135.0" y="501" text-anchor="middle" class="t tiny">Target服务分布</text>
+<rect x="635" y="395" width="270" height="135" rx="4" fill="#EEF4FA" stroke="#2E74B5" stroke-width="2"/>
+<text x="770.0" y="424" text-anchor="middle" class="t m" style="font-size:18px">模型版本冻结</text>
+<text x="770.0" y="453" text-anchor="middle" class="t tiny">参数来源与变更记录</text>
+<text x="770.0" y="477" text-anchor="middle" class="t tiny">敏感度检查</text>
+<text x="770.0" y="501" text-anchor="middle" class="t tiny">禁止对留出集调参</text>
+<rect x="270" y="395" width="270" height="135" rx="4" fill="#EEF8F4" stroke="#0B6E4F" stroke-width="2"/>
+<text x="405.0" y="424" text-anchor="middle" class="t m" style="font-size:18px">留出集验收</text>
+<text x="405.0" y="453" text-anchor="middle" class="t tiny">加权准确度≥0.80</text>
+<text x="405.0" y="477" text-anchor="middle" class="t tiny">硬门限全部通过</text>
+<text x="405.0" y="501" text-anchor="middle" class="t tiny">异常场景有归因</text>
+<rect x="55" y="600" width="410" height="90" rx="4" fill="#F8FAFC" stroke="#64748B" stroke-width="2"/>
+<text x="260.0" y="629" text-anchor="middle" class="t m" style="font-size:18px">评审签核 / 不通过回退</text>
+<text x="260.0" y="658" text-anchor="middle" class="t tiny">签核：固化模型适用域与版本</text>
+<text x="260.0" y="682" text-anchor="middle" class="t tiny">不通过：回到结构假设或基准定义</text>
+<polyline points="1250,280 1250,395" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<polyline points="1000,462 905,462" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<polyline points="635,462 540,462" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<polyline points="405,530 405,600" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<polyline points="270,440 180,440 180,280 165,280" fill="none" stroke="#C2413B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="2 6" marker-end="url(#a-red)"/>
+<polyline points="1115,395 1115,330 715,330 715,280" fill="none" stroke="#C2413B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="2 6" marker-end="url(#a-red)"/>
+<text x="705" y="346" text-anchor="middle" class="t tiny" style="fill:#C2413B;">仅当误差被证明来自可校准参数时回调参数</text>
+<polyline points="52,752 107,752" fill="none" stroke="#2563EB" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<text x="120" y="758" text-anchor="start" class="t tiny" style="">请求</text>
+<polyline points="242,752 297,752" fill="none" stroke="#D97706" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 6" marker-end="url(#a-orange)"/>
+<text x="310" y="758" text-anchor="start" class="t tiny" style="">写数据</text>
+<polyline points="432,752 487,752" fill="none" stroke="#059669" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 5" marker-end="url(#a-green)"/>
+<text x="500" y="758" text-anchor="start" class="t tiny" style="">响应</text>
+<polyline points="622,752 677,752" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<text x="690" y="758" text-anchor="start" class="t tiny" style="">配置/统计</text>
+<polyline points="812,752 867,752" fill="none" stroke="#C2413B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="2 6" marker-end="url(#a-red)"/>
+<text x="880" y="758" text-anchor="start" class="t tiny" style="">反压</text>
+</svg>

@@ -61,6 +61,7 @@ TmPld::TmPld(pld_cmd_t cmd, uint64_t mst_addr, uint64_t slv_addr, uint32_t size)
 }
 
 TmPld::TmPld(std::shared_ptr<TmPld> pld)
+// 克隆 payload 时保留 gid 和全部协议字段，用于同一事务的独立对象副本。
 : gid(pld->gid)
 , type_id(pld->type_id)
 , content(pld->content)
@@ -105,6 +106,7 @@ uint64_t TmPld::get_ts() {
 }
 
 uint32_t TmPld::reg_type_id() {
+    // type_id 注册序号与事务 gid 独立，不能用于判断请求是否完成。
     return ++cur_type_id; //lint !e53
 }
 
@@ -132,4 +134,4 @@ void TmPld::print(std::string prefix) {
 
 
 //-------------------------------------------------------------------------------------------------
-// End
+// 文件结束。

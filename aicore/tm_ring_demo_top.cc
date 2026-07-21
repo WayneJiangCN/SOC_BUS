@@ -5,23 +5,22 @@
 
 namespace {
 
-const char* kPemConfig = "../etc/pem_config_cloud.toml";
-
 std::string
 selected_case_name()
 {
     const char* value = std::getenv("TM_RING_DEMO_CASE");
     return value == nullptr || *value == '\0'
-               ? std::string("single_rw")
+               ? std::string("multi_core")
                : std::string(value);
 }
 
 std::string
-selected_config_name()
+selected_scenario_config()
 {
-    const char* value = std::getenv("TM_RING_DEMO_CONFIG");
-    return value == nullptr || *value == '\0' ? std::string(kPemConfig)
-                                               : std::string(value);
+    const char* value = std::getenv("TM_RING_ESL_CONFIG");
+    return value == nullptr || *value == '\0'
+               ? std::string("config/tm_ring_demo.toml")
+               : std::string(value);
 }
 
 void before_test() {}
@@ -30,21 +29,33 @@ void after_test() {}
 }  // namespace
 
 template <typename T>
-void
-utest(const std::string& cfg_file_name)
+void utest()
 {
     const std::string case_name = selected_case_name();
-    auto test_case = tm_ring_demo::make_demo_case(case_name);
+    tm_ring_demo::RingDemoConfig test_case;
     const std::string result_file = "pem_" + case_name + "_result.txt";
     std::string config_error;
+    ASSERT_TRUE(tm_ring_demo::load_demo_config(
+        selected_scenario_config(), case_name, &test_case, &config_error))
+        << config_error;
     ASSERT_TRUE(tm_ring_demo::apply_utest_options(
         &test_case, &config_error)) << config_error;
+
+    const char* ddr_override = std::getenv("TM_RING_DDR_CONFIG");
+    if (ddr_override == nullptr || *ddr_override == '\0') {
+        // Legacy GTest environment variable.
+        ddr_override = std::getenv("TM_RING_DEMO_CONFIG");
+    }
+    const std::string ddr_config =
+        ddr_override == nullptr || *ddr_override == '\0'
+            ? test_case.ddr_config_file
+            : std::string(ddr_override);
 
     before_test();
     int status = 0;
     try {
         status = tm_ring_demo::run_demo_to_file<T>(
-            cfg_file_name, test_case, result_file);
+            ddr_config, test_case, result_file);
     } catch (...) {
         after_test();
         throw;
@@ -56,5 +67,5 @@ utest(const std::string& cfg_file_name)
 
 TEST(pem, utest)
 {
-    utest<PemTrDemo>(selected_config_name());
+    utest<PemTrDemo>();
 }

@@ -19,11 +19,10 @@
 class TmBusFlowCtrl;
 
 /*
- * Target-side NIU.
+ * Target 侧网络接口单元。
  *
- * The ring router only ejects packets into these local queues. This module
- * owns the target/TmMem handshake: send requests to memory, receive memory
- * responses, and inject responses back into the local router FIFOs.
+ * Router 只负责把目的包弹出到 TargetPort。本模块负责 Target/TmMem 握手：
+ * 向 Memory 发送请求、接收 Memory 响应，并将响应重新注入本地 Router。
  */
 class TmRingTargetPort : public tm_engine::TmModule
 {
@@ -40,28 +39,35 @@ class TmRingTargetPort : public tm_engine::TmModule
     void reset();
     bool idle() const;
 
+    // 绑定 Target 逻辑编号和共享流控，流控资源在真正发送到 Memory 时占用。
     void attach(uint32_t target_id, std::shared_ptr<TmBusFlowCtrl> flow_ctrl);
+    // 绑定真实 Memory/TmMem 接口；inf_ 同时承载请求和存储返回的响应。
     void attach(p_tm_com_inf_t inf);
     void attach(p_tm_mem_t mem);
     p_tm_com_inf_t ring_inf() const;
 
+    // 请求 FIFO 有效时分别尝试向 Memory 发送 RD、WR 和 WR_DAT。
     void send_pending_requests();
     void send_rd_cmd();
     void send_wr_cmd();
     void send_wr_dat();
 
+    // Memory 响应到达后设置 Ring 响应类型，再注入本地 Router 的响应子网。
     void recv_rd_cmd_rsp();
     void recv_wr_cmd_rsp();
     void recv_wr_dat_rsp();
     void recv_ring_req();
 
+    // 这些访问器读取 Memory 接口中的响应，不额外复制 payload。
     bool has_response(PldCmd cmd, uint32_t lane = 0) const;
     p_tm_pld_t front_response(PldCmd cmd,
                               uint32_t lane = 0) const;
     void pop_response(PldCmd cmd, uint32_t lane = 0);
 
   private:
+    // 统一请求发送逻辑：检查 credit/token、发射间隔和下游 ready。
     void send_cmd(PldCmd cmd);
+    // Ring 请求只有在对应 Target FIFO 未满时才 pop，形成自然反压。
     void recv_ring_cmd(PldCmd cmd);
     p_tm_com_que_t req_q(PldCmd cmd) const;
     uint32_t ring_channel(PldCmd cmd, uint32_t lane = 0) const;
@@ -79,10 +85,12 @@ class TmRingTargetPort : public tm_engine::TmModule
     p_tm_com_inf_t inf_ = nullptr;
     p_tm_com_inf_t ring_inf_ = nullptr;
 
+    // Target 的真实请求缓存，分别保留读命令、写命令和写数据阶段。
     p_tm_com_que_t rd_req_q_ = nullptr;
     p_tm_com_que_t wr_req_q_ = nullptr;
     p_tm_com_que_t wr_dat_q_ = nullptr;
 
+    // 发射时间用于限制 Target 前端吞吐，不是显式 retry 事件。
     std::array<tm_engine::tm_time_t, 3> next_req_issue_time_ = {0, 0, 0};
     std::vector<tm_engine::tm_time_t> next_rd_rsp_issue_time_;
     tm_engine::tm_time_t next_wr_req_rsp_issue_time_ = 0;

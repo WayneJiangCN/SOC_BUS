@@ -18,12 +18,15 @@ using tm_ring_target_cfg_t = tm_bus_target_cfg_t;
 using p_tm_ring_target_cfg_t = p_tm_bus_target_cfg_t;
 
 enum class TmRingPortDir : uint32_t {
+  // LOCAL 表示当前 Router 挂接的 Master NIU 或 TargetPort。
   LOCAL = 0,
+  // EAST 表示顺时针方向，WEST 表示逆时针方向。
   EAST = 1,
   WEST = 2,
 };
 
 enum class TmRingSubnet : uint32_t {
+  // 请求和响应使用独立子网，避免响应被持续请求流量长期阻塞。
   REQ = 0,
   RSP = 1,
 };
@@ -41,6 +44,7 @@ inline constexpr uint32_t tm_ring_subnet_index(TmRingSubnet subnet) {
 }
 
 inline constexpr bool tm_ring_is_req_cmd(PldCmd cmd) {
+  // WR_DAT 虽然是写事务的第二阶段，但在 Ring 中仍属于请求方向。
   return cmd == PldCmd::RD || cmd == PldCmd::WR || cmd == PldCmd::WR_DAT;
 }
 
@@ -69,6 +73,7 @@ inline constexpr uint32_t tm_ring_rd_rsp_bus_channel(uint32_t lane) {
 
 inline constexpr uint32_t tm_ring_rsp_bus_channel(PldCmd cmd,
                                                   uint32_t lane = 0) {
+  // 读响应按 lane 分流；写命令响应和写数据响应复用对应请求通道编号。
   return cmd == PldCmd::RD_RSP   ? tm_ring_rd_rsp_bus_channel(lane)
          : cmd == PldCmd::WR_RSP ? tm_ring_cmd_bus_channel(PldCmd::WR)
                                  : tm_ring_cmd_bus_channel(PldCmd::WR_DAT);
@@ -81,15 +86,15 @@ inline constexpr uint32_t tm_ring_rsp_bus_channel_count(
 
 inline constexpr uint32_t tm_ring_base_packet_channel_count() {
   /*
-   * Base channels cover:
-   * RD, WR, WR_DAT, RSP, RD_RSP(lane0), WR_RSP.
-   * Extra RD_RSP lanes are appended after the base command channels.
+   * 基础通道覆盖 RD、WR、WR_DAT、RSP、RD_RSP(lane0) 和 WR_RSP。
+   * 额外 RD_RSP lane 依次追加在基础命令通道之后。
    */
   return static_cast<uint32_t>(PldCmd::WR_RSP) + 1;
 }
 
 inline constexpr uint32_t tm_ring_packet_channel(PldCmd cmd,
                                                  uint32_t lane = 0) {
+  // lane0 直接使用 RD_RSP 的枚举值，额外 lane 追加到基础命令通道之后。
   return cmd == PldCmd::RD_RSP
              ? (lane == 0 ? static_cast<uint32_t>(PldCmd::RD_RSP)
                           : tm_ring_base_packet_channel_count() + lane - 1)
@@ -167,8 +172,10 @@ using tm_ring_cfg_t = TmRingCfg;
 using p_tm_ring_cfg_t = std::shared_ptr<tm_ring_cfg_t>;
 
 struct TmRingRdRspState {
+  // 一笔读事务可能返回多个响应分片，只有全部分片到齐后才能完成事务。
   uint32_t rsp_expected = 1;
   uint32_t rsp_seen = 0;
+  // Target credit 只能释放一次，防止多分片响应造成重复释放。
   bool slot_released = false;
 };
 

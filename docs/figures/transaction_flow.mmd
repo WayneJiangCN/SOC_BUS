@@ -1,0 +1,23 @@
+flowchart LR
+    ACCEPT["Master Adapter 接受事务"]
+    DECODE["地址译码/Target 选择"]
+    RESERVE["预留 Master/Global/Target OSD"]
+    REQ["请求网络\n路由/仲裁/Link"]
+    TARGET["Target Adapter/Target 服务"]
+    GRANT["Grant/中间响应"]
+    WDATA["写数据网络"]
+    FINAL["终态响应网络"]
+    RETIRE["事务完成\n释放 OSD/Credit"]
+
+    ACCEPT --> DECODE
+    DECODE -.->|资源申请| RESERVE
+    RESERVE -->|读请求或写命令| REQ
+    REQ --> TARGET
+    TARGET -.->|读终态响应| FINAL
+    TARGET -.->|写 Grant| GRANT
+    GRANT ==>|触发写数据| WDATA
+    WDATA ==> TARGET
+    TARGET -.->|写终态响应| FINAL
+    FINAL -.-> RETIRE
+    RETIRE -.->|Credit Return| RESERVE
+    LEGEND["图例：实线=请求；粗线=写数据；虚线=响应或Credit"]

@@ -17,18 +17,22 @@
 class TmBusFlowCtrl
 {
   public:
+    // config 建立按 Target 索引的资源数组；reset 将资源恢复到配置上限。
     void config(p_tm_bus_cfg_t cfg);
     void reset();
     void update_tokens(tm_engine::tm_time_t now);
 
+    // 返回 false 表示资源不足，调用方必须保留请求队头且不能提前消费资源。
     bool can_send_to_target(uint32_t target_id, aic_req_type_t req_type,
                             p_tm_pld_t pld);
 
 
+    // 请求被 Memory 接口真正接收后 consume，完整事务响应完成后 release。
     void consume_target_credit(uint32_t target_id, aic_req_type_t req_type,
                                p_tm_pld_t pld);
     void release_target_credit(uint32_t target_id, aic_req_type_t req_type);
 
+    // busy cycle 用于限制 Target 请求/响应发射带宽，不表示 Ring Link 延迟。
     uint32_t calc_issue_busy_cycles(uint32_t target_id, p_tm_pld_t pld) const;
     uint32_t calc_rsp_busy_cycles(uint32_t target_id, p_tm_pld_t pld) const;
     uint32_t calc_rsp_busy_cycles(uint32_t target_id, p_tm_pld_t pld,
@@ -49,6 +53,7 @@ class TmBusFlowCtrl
 
   private:
     p_tm_bus_cfg_t cfg_ = nullptr;
+    // 每个 Target 独立维护读/写 slot 和读/写带宽 token。
     std::vector<uint32_t> rd_slot_credit_;
     std::vector<uint32_t> wr_slot_credit_;
     std::vector<uint32_t> acc_slot_credit_;
@@ -56,10 +61,12 @@ class TmBusFlowCtrl
     std::vector<uint32_t> rd_bw_token_;
     std::vector<uint32_t> wr_bw_token_;
     std::vector<uint32_t> target_outstanding_;
+    // global_outstanding_ 对 RD_REQ/WR_REQ 计数，WR_DAT 不重复增加事务数。
     uint32_t global_outstanding_ = 0;
     uint64_t global_osd_stalls_ = 0;
     uint64_t target_slot_stalls_ = 0;
     uint64_t bandwidth_token_stalls_ = 0;
+    // 防止同一仿真时刻由多个 TargetPort 重复补充 token。
     tm_engine::tm_time_t last_token_update_time_ =
         static_cast<tm_engine::tm_time_t>(-1);
 };

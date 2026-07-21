@@ -38,6 +38,7 @@ void TmRingFabric::config() {
   PEM_LOG_INFO(log_, "[{0:d}] config masters:{1:d} targets:{2:d}",
                time(), cfg_->num_masters, cfg_->num_targets);
 
+  // 构建顺序必须先于连接顺序：连接阶段会按拓扑索引访问已创建的子模块。
   init_topology_and_flow_ctrl();
   clear_components();
 
@@ -55,11 +56,13 @@ void TmRingFabric::config() {
 }
 
 void TmRingFabric::init_topology_and_flow_ctrl() {
+  // Topology 负责“包去哪里”，FlowCtrl 负责“Target 当前能否接收”。
   topology_ = std::make_shared<TmRingTopology>();
   flow_ctrl_ = std::make_shared<TmBusFlowCtrl>();
 
   topology_->config(cfg_);
 
+  // Ring 配置与总线流控配置共享 Target 参数，避免维护第二套 Target 资源状态。
   auto flow_ctrl_cfg = std::make_shared<tm_bus_cfg_t>();
   flow_ctrl_cfg->num_targets = cfg_->num_targets;
   flow_ctrl_cfg->global_osd = cfg_->global_osd;
@@ -80,6 +83,7 @@ void TmRingFabric::clear_components() {
 }
 
 void TmRingFabric::create_master_nius() {
+  // 每个 Master 独占一个 NIU，API 请求号和 Master OSD 因此互不干扰。
   for (uint32_t i = 0; i < cfg_->num_masters; ++i) {
     master_nius_.push_back(tm_make_ring_inf(
         this->name() + "_master_niu" + std::to_string(i), clk_, i, cfg_));
@@ -103,6 +107,7 @@ void TmRingFabric::create_routers() {
 }
 
 void TmRingFabric::create_links() {
+  // 每个 Router 分别建立顺时针和逆时针输出 Link，形成双向 Ring。
   for (uint32_t router = 0; router < ring_router_count_; ++router) {
     create_link(router, TmRingPortDir::EAST);
     create_link(router, TmRingPortDir::WEST);
@@ -110,6 +115,7 @@ void TmRingFabric::create_links() {
 }
 
 void TmRingFabric::create_link(uint32_t router_id, TmRingPortDir out_dir) {
+  // 单节点 Ring 没有外部邻居，此时不创建无意义的自环 Link。
   if (!topology_->has_neighbor(router_id, out_dir)) {
     return;
   }
@@ -136,6 +142,7 @@ void TmRingFabric::bind_master_nius() {
 }
 
 void TmRingFabric::bind_master_niu(uint32_t idx, p_tm_ring_inf_t inf) {
+  // 先写入稳定 mst_id，再把 NIU 的 Router 侧端口挂到源节点 LOCAL 口。
   inf->set_master_id(topology_->port_master_id(idx));
   master_nius_[idx] = inf;
 
@@ -148,6 +155,7 @@ void TmRingFabric::bind_master_niu(uint32_t idx, p_tm_ring_inf_t inf) {
 }
 
 void TmRingFabric::attach_routers() {
+  // Router 只持有自己的两个输出 Link，不直接访问全局 Link 容器。
   for (uint32_t router_id = 0; router_id < routers_.size(); ++router_id) {
     auto router = routers_[router_id];
     auto east_link =
@@ -167,6 +175,7 @@ void TmRingFabric::attach_routers() {
 }
 
 void TmRingFabric::attach_links() {
+  // Link 的目的方向是相邻 Router 的输入方向，例如 EAST 输出接对端 WEST 输入。
   for (const auto& it : links_) {
     auto link = it.second;
     link->attach(get_router_port_inf(link->dst_router(), link->dst_dir()));
@@ -174,6 +183,7 @@ void TmRingFabric::attach_links() {
 }
 
 void TmRingFabric::bind_target_ports() {
+  // TargetPort 挂在 topology 分配的节点 LOCAL 口，负责 Ring 与 Memory 的协议转换。
   for (uint32_t target_id = 0; target_id < target_ports_.size(); ++target_id) {
     auto target_port = target_ports_[target_id];
     uint32_t router_id = topology_->target_node(target_id);
@@ -188,6 +198,7 @@ void TmRingFabric::build() {}
 
 void TmRingFabric::reset() {
   PEM_LOG_INFO(log_, "[{0:d}] reset", time());
+  // 先清空所有承载 payload 的子模块，再恢复共享 credit/token/outstanding。
   for (auto& niu : master_nius_) {
     niu->reset();
   }
@@ -205,6 +216,7 @@ void TmRingFabric::reset() {
 }
 
 bool TmRingFabric::idle() {
+  // 任一层仍有在途包或未完成事务时，整个 Fabric 都不能报告空闲。
   bool ret = true;
 
   for (auto& niu : master_nius_) {
@@ -234,18 +246,29 @@ uint64_t TmRingFabric::bandwidth_token_stalls() const {
   return flow_ctrl_ == nullptr ? 0 : flow_ctrl_->bandwidth_token_stalls();
 }
 
-uint64_t TmRingFabric::ring_link_stalls() const {
-  uint64_t stalls = 0;
+TmRingLinkStallBreakdown TmRingFabric::ring_link_stall_breakdown() const {
+  TmRingLinkStallBreakdown stalls;
   for (const auto& it : links_) {
     const auto& req = it.second->subnet_stats(TmRingSubnet::REQ);
     const auto& rsp = it.second->subnet_stats(TmRingSubnet::RSP);
-    stalls += req.send_reject_stall + req.downstream_inf_full_stall;
-    stalls += rsp.send_reject_stall + rsp.downstream_inf_full_stall;
+    stalls.serialization_busy += req.serialization_busy_stall +
+                                 rsp.serialization_busy_stall;
+    stalls.inflight_limit += req.inflight_limit_stall +
+                             rsp.inflight_limit_stall;
+    stalls.link_fifo_full += req.link_fifo_full_stall +
+                             rsp.link_fifo_full_stall;
+    stalls.downstream_fifo_full += req.downstream_inf_full_stall +
+                                   rsp.downstream_inf_full_stall;
   }
   return stalls;
 }
 
+uint64_t TmRingFabric::ring_link_stalls() const {
+  return ring_link_stall_breakdown().total();
+}
+
 void TmRingFabric::attach_master(uint32_t idx, p_tm_ring_inf_t inf) {
+  // 越界或空接口无法形成有效连接，直接拒绝且不覆盖已有 NIU。
   if (idx >= master_nius_.size() || inf == nullptr) {
     return;
   }
@@ -265,6 +288,7 @@ void TmRingFabric::attach_master(uint32_t idx, p_tm_ring_biu_t biu) {
   if (biu == nullptr) {
     return;
   }
+  // BIU 的 out_intf_ 同时承载下行请求和上行响应，可直接接入 NIU bus_inf_。
   attach_master(idx, biu->out_intf_);
 }
 
@@ -292,6 +316,7 @@ void TmRingFabric::attach_target(uint32_t idx, p_tm_mem_t mem) {
 }
 
 void TmRingFabric::bind_master_id(uint32_t port_id, uint32_t mst_id) {
+  // Topology 和 NIU 必须同步更新，否则响应可能按旧 mst_id 返回错误端口。
   topology_->bind_master_id(port_id, mst_id);
   if (port_id < master_nius_.size()) {
     master_nius_[port_id]->set_master_id(mst_id);
@@ -300,6 +325,7 @@ void TmRingFabric::bind_master_id(uint32_t port_id, uint32_t mst_id) {
 
 uint32_t TmRingFabric::send_rd_req(uint32_t master_port, uint64_t address,
                                    uint32_t size) {
+  // UINT32_MAX 表示 API 投递失败，调用者不应把它加入待完成请求集合。
   if (master_port >= master_nius_.size()) {
     return static_cast<uint32_t>(-1);
   }
@@ -353,6 +379,7 @@ uint64_t TmRingFabric::make_link_key(uint32_t src_router_id,
                                      TmRingPortDir src_dir,
                                      uint32_t dst_router_id,
                                      TmRingPortDir dst_dir) const {
+  // 固定字段位置保证 EAST/WEST 以及反向 Link 生成不同的 64 位键。
   return (static_cast<uint64_t>(src_router_id) << 48) |
          (static_cast<uint64_t>(tm_ring_port_index(src_dir)) << 40) |
          (static_cast<uint64_t>(dst_router_id) << 8) |

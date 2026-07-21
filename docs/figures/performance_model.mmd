@@ -1,0 +1,27 @@
+flowchart LR
+    PARAM["架构输入\n拓扑/宽度/FIFO/OSD/仲裁/Target"]
+    FIXED["固定延迟\nAdapter/Router/Link Propagation"]
+    DYNAMIC["动态延迟\n仲裁/排队/反压/OSD"]
+    SERIAL["包长相关\nLink/Target 序列化"]
+    ROUTE["拓扑相关\nHop/方向/热点 Link"]
+    SERVICE["Target 相关\n服务延迟/吞吐/Token"]
+    MODEL["离散事件性能模型"]
+    METRIC["吞吐/平均与尾延迟\n利用率/公平性/瓶颈"]
+    REF["RTL/可信架构参考结果"]
+    ACC["精度评价\n误差/趋势/瓶颈一致性"]
+    BOUND["适用边界与回归基线"]
+
+    PARAM --> FIXED
+    PARAM --> DYNAMIC
+    PARAM --> SERIAL
+    PARAM --> ROUTE
+    PARAM --> SERVICE
+    FIXED --> MODEL
+    DYNAMIC --> MODEL
+    SERIAL --> MODEL
+    ROUTE --> MODEL
+    SERVICE --> MODEL
+    MODEL --> METRIC
+    METRIC --> ACC
+    REF --> ACC
+    ACC --> BOUND

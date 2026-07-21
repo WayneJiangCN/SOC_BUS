@@ -1,5 +1,21 @@
 # AI Core Ring-Lite 总线模型方案与架构
 
+## 架构评审摘要
+
+本方案选择事务级双向 Ring-Lite，而不是单层共享 XBar 或完整 flit/VC NoC。核心判断是：当前阶段需要保留多跳路径、方向竞争、链路序列化、Target 瓶颈和端到端反压，同时避免过早引入 VC allocator、switch allocator 和逐 flit credit 等高复杂度微架构。
+
+| 评审项 | 当前决策 | 架构含义 |
+|---|---|---|
+| 拓扑 | 双向 Ring，每个 Master/Target 独占一个节点 | 布局确定、布线规则，平均跳数随端点数增长 |
+| 路由 | 确定性最短路径，等距走 `EAST` | 易复现、易分析，但等距流量可能形成方向偏置 |
+| 交换粒度 | 事务包级 | 保留端口竞争，省略 flit 交错与 VC 行为 |
+| 子网 | Request/Response 逻辑分离 | 降低协议依赖耦合；若硬件共享物理链路，需要重新折算带宽 |
+| 流控 | FIFO + Master OSD + Target slot + bandwidth token | 同时覆盖瞬时排队、并发上限和长期带宽上限 |
+| 写协议 | `WR -> Grant -> WR_DAT -> Completion` | 保留两阶段写资源依赖和 DBID/grant 语义 |
+| 精度目标 | CA/ESL 级趋势与瓶颈相关性 | 不承诺与 RTL 逐周期一致 |
+
+从评审角度，当前模型的主要价值不是给出单笔事务的绝对时延，而是回答以下架构问题：拓扑是否足够、链路或 Target 谁先饱和、OSD 是否匹配 RTT、interleave 是否均衡，以及增加端点或带宽能否形成可兑现的系统收益。
+
 ## 1. 模型定位
 
 当前总线模型是一套面向多 AI Core SoC 的事务级双向 Ring-Lite 互连，用于连接多个上游 Master 与多个存储或外设 Target。模型重点表达系统级性能中的主要结构性因素，而不是复刻 RTL 级 NoC 的全部微架构细节。
@@ -87,10 +103,10 @@ Router 对输入事务执行以下处理：
 1. 根据 payload 中的源节点和目的节点判断请求或响应的目标方向；
 2. 若目标就在本节点，则转发到 `LOCAL` 端口；
 3. 否则根据 Topology 选择 `EAST` 或 `WEST`；
-4. 多个输入竞争同一输出方向时执行轮询仲裁；
+4. 在每个输入端口内，按 traffic class 和读响应 lane 维护轮询指针；
 5. 只有下游 Link 或本地端口能够接收时才提交转发。
 
-仲裁以事务包为粒度。模型保留了输出端口竞争和方向热点，但不进一步拆分 flit 或 Virtual Channel。
+仲裁以事务包为粒度。当前实现的输入端 channel/lane 选择具有轮询语义；多个输入同时竞争同一输出时，由 Link 可接受状态和事件调度顺序决定实际提交者。`output_rr_ptr_` 已记录提交历史，但尚未参与统一的跨输入 winner 选择，因此当前版本不能宣称具备严格的输出端 bounded fairness。模型能够形成输出端口竞争和方向热点，但公平性结论必须结合各 Master 的实际吞吐统计判断。
 
 ### 3.4 Link：链路传输层
 
@@ -112,6 +128,10 @@ serialization_cycles = ceil(packet_bytes / link_width_bytes)
 ```
 
 链路延迟决定包何时到达下一跳，序列化周期决定链路何时可以接收下一次发送。两者分开建模，可以表达流水化链路的带宽与传播时延差异。
+
+当前 Request 和 Response 子网分别维护 `next_send_time`、FIFO 和 inflight 计数，相当于两套独立的逻辑链路资源。如果目标硬件只提供一套由请求和响应时分复用的物理通道，当前模型会高估双向合计吞吐，校准时必须合并带宽预算或引入共享仲裁。
+
+当前链路字节记账中，`RD/WR` 使用请求头大小，`WR_DAT` 和 `RD_RSP` 主要按 payload 大小计费，写响应按响应头大小计费。协议头是否与数据同拍、是否额外占用 beat 属于硬件相关假设，需要在与 RTL/协议规格对齐时统一。
 
 ### 3.5 TargetPort：目标设备接入层
 
@@ -226,6 +246,35 @@ WR
 
 `gid` 在整个请求、授权、写数据和完成响应阶段保持稳定；`mst_id` 标识发起 Master。二者共同保证多 Master、多笔在途事务下的正确回程。
 
+### 5.3 资源记账时点
+
+资源不是在同一个位置统一预留，而是随着事务跨越 NIU、Ring 和 TargetPort 分阶段记账。
+
+| 事务阶段 | Master OSD | Global/Target outstanding | Slot | Bandwidth token | 释放时点 |
+|---|---|---|---|---|---|
+| `RD` 注入 Ring | 占用 read OSD | 尚未占用 | 尚未占用 | 尚未消耗 | 最后一拍/最后一个读响应完成后释放 Master OSD |
+| `RD` 发给 Target | 已占用 | 各加一 | 占用 access + read slot | 消耗 access + read token | 第一个读响应完成时释放 Target 资源 |
+| `WR` 注入 Ring | 占用 write OSD | 尚未占用 | 尚未占用 | 不消耗 | 最终写完成响应后释放 Master OSD |
+| `WR` 发给 Target | 已占用 | 各加一 | 占用 access + write slot | 请求阶段不消耗写数据 token | Grant 不释放资源 |
+| `WR_DAT` 发给 Target | 已占用 | 不重复增加 | 保持原写 slot | 消耗 access + write token | 最终写完成响应后释放 Target/Global 资源 |
+
+这一实现有两个必须在性能解读中保留的语义：
+
+- `global_osd` 限制的是已经被 Target 接受的事务，而不是所有已进入 Ring 的事务；Ring 内仍可能排队更多请求。
+- 多响应读事务在第一个响应到达时释放 Target slot，在最后一个响应完成时释放 Master read OSD。该策略提高 Target 资源周转率，但需要与目标硬件的 credit 释放定义对齐。
+
+### 5.4 顺序性与事务隔离
+
+当前模型提供事务标识和确定性路由，但不提供全局内存顺序模型：
+
+- 同一接口、同一 channel 内的 FIFO 顺序在队列中保持；
+- 不同 traffic class、不同读响应 lane、不同 Target 或不同路径之间允许重排；
+- Response 依靠 `mst_id + gid` 回到正确 Master，不依靠返回顺序匹配；
+- 模型没有 same-address hazard、barrier、fence 或跨 Master ordering point；
+- 模型不包含 cache coherence、snoop 或一致性目录。
+
+如果系统要求 AXI ID ordering、同地址写后读约束或软件可见的强序语义，应由上游协议适配层、Target 或新增 ordering module 明确实现，不能从当前 Ring FIFO 行为推导得到。
+
 ## 6. 仲裁与 Backpressure
 
 Router 的竞争按输出方向局部化，而不是把整张网络抽象成一根全局串行总线。同一周期内，不同 Link 和不同方向可以并行推进。
@@ -297,6 +346,46 @@ Target resource limit
 
 阻塞统计表示一次被拒绝的发送或资源申请。多个端口可能在同一周期分别产生阻塞，因此阻塞次数用于判断瓶颈来源，不应直接等同于全局停顿周期。
 
+### 7.4 架构性能上界
+
+对给定流量，端到端有效带宽的上界可写成：
+
+```text
+BW_effective <= min(
+    BW_master_injection,
+    BW_ring_min_cut,
+    sum(BW_target),
+    OSD * payload_bytes / average_RTT
+)
+```
+
+其中：
+
+- `BW_master_injection` 由 Master FIFO、Master OSD 和注入端口能力决定；
+- `BW_ring_min_cut` 由热点路径上最窄的 Link 集合决定，不能简单使用所有 Link 带宽之和；
+- `sum(BW_target)` 只有在地址映射均匀且 Target 真正并行时才成立；
+- `OSD * payload / RTT` 表示延迟隐藏能力，OSD 小于带宽时延积时，即使链路未满也无法达到峰值。
+
+单条 Link 的包启动间隔由以下公式限制：
+
+```text
+Tserialize = ceil(packet_bytes / ring_link_width_bytes)
+```
+
+Target 请求和响应发射间隔分别近似为：
+
+```text
+Ttarget_req = frontend_latency + forward_latency
+              + header_latency + ceil(payload / target_width)
+              + hotspot_penalty
+
+Ttarget_rsp = response_latency + header_latency
+              + ceil(response_payload / target_width)
+              + hotspot_penalty
+```
+
+单事务无竞争时延至少包含 NIU/接口延迟、逐跳 Link 传播延迟、Target 固定延迟和响应回程；负载升高后的增量主要来自 Router/Link/Target FIFO 排队。评审时应分别报告 zero-load latency 和 saturation throughput，避免用单一平均延迟掩盖拥塞拐点。
+
 ## 8. 正确性与可观测性
 
 总线级正确性应覆盖以下不变量：
@@ -340,7 +429,32 @@ Target resource limit
 
 模型不适合直接给出 RTL 级绝对周期、flit 级 HOL 行为或微小流水优化的最终收益。
 
-## 10. 代码架构映射
+## 10. 硬件映射与模型校准
+
+模型参数必须有明确的硬件来源。仅靠调参得到目标带宽，无法保证瓶颈位置和拥塞行为正确。
+
+| 模型参数 | 推荐硬件来源 | 校准观察量 |
+|---|---|---|
+| 节点布局与方向 | Floorplan、端点连接图 | 平均/最大跳数、热点 Link |
+| Link width/latency | NoC 规格、时序流水定义 | zero-load hop latency、链路饱和带宽 |
+| Link/FIFO/inflight | RTL 参数、buffer allocation | 首次 backpressure 点、突发吸收能力 |
+| Master OSD | BIU/NIU credit 定义 | OSD sweep 下的带宽时延积拐点 |
+| Target slot | Memory slice/HBM controller queue | Target outstanding 峰值和排队延迟 |
+| Token replenishment | 带宽配置寄存器、QoS 规格 | 长窗口稳定带宽 |
+| Target latency | RTL 仿真或硅后计数器 | 无竞争读写 RTT 分布 |
+| Interleave/hash | 地址映射规格 | 各 Target 流量占比和热点偏差 |
+| 仲裁 | Router/NIU RTL | 多 Master 公平性和最坏等待时间 |
+
+推荐采用分层校准流程：
+
+1. **功能对齐**：验证地址解码、事务回程、写两阶段关联和资源守恒；
+2. **零负载对齐**：使用单事务测量每跳延迟、Target 固定延迟和返回路径；
+3. **单瓶颈对齐**：分别限制 Master、Link 和 Target，确认模型能定位正确瓶颈；
+4. **饱和曲线对齐**：扫描 OSD、FIFO 和注入率，对比吞吐拐点及排队增长；
+5. **混合流量对齐**：对比读写比例、地址分布和多 Master 公平性；
+6. **相关性签核**：以趋势误差、峰值带宽误差和关键延迟分位数作为签核指标，而不是只比较单个平均值。
+
+## 11. 代码架构映射
 
 | 模块 | 代码位置 | 核心职责 |
 |---|---|---|
@@ -354,7 +468,7 @@ Target resource limit
 | Types | `tm_ring_types.h`、`tm_bus_types.h` | 配置、端口、子网和 Target 参数定义 |
 | Payload | `tm_pld.h/.cc` | 事务标识、地址、数据与 Ring metadata |
 
-## 11. 演进方向
+## 12. 演进方向
 
 后续可以在不改变当前分层结构的前提下继续扩展：
 
@@ -366,3 +480,19 @@ Target resource limit
 6. 根据 RTL 或性能计数器校准延迟、带宽和资源上限。
 
 总体而言，当前架构定位为结构上接近真实 NoC、性能上覆盖主要瓶颈、时序上保留必要竞争的事务级 Ring-Lite 模型。
+
+## 13. 已知风险与待评审项
+
+以下项目需要在架构冻结或与 RTL 相关性签核前给出明确结论：
+
+1. **跨输入输出仲裁**：`output_rr_ptr_` 尚未参与统一 winner 选择，当前实现没有严格的 bounded fairness 保证。
+2. **REQ/RSP 物理资源关系**：模型将两个子网作为独立链路资源；必须确认硬件是物理隔离、部分共享还是完全时分复用。
+3. **Global OSD 的定义**：当前在 Target 接受请求时记账，不包含仍在 Ring 内排队的请求；需确认这是否匹配硬件 credit 域。
+4. **多响应读的 slot 释放**：Target slot 在首个响应后释放，Master OSD 在最后响应后释放；需确认硬件是否采用相同策略。
+5. **协议字节记账**：数据包的 header、payload 和 response header 是否共享 beat，需要与实际链路协议统一。
+6. **死锁证明**：确定性最短路径和 REQ/RSP 分离降低协议相关死锁风险，但当前没有基于 channel dependency graph 的形式化无死锁证明。
+7. **响应 lane 含义**：`rd_rsp_port_num` 是逻辑并发返回能力，不应直接解释为同数量的物理独立链路。
+8. **端点布局假设**：当前 Router 数量等于 Master 与 Target 总数，端点不共置；若实际 floorplan 共置 NIU/TargetPort，需要调整跳数模型。
+9. **Hotspot penalty**：当前是经验性附加延迟，不代表具体 RTL 结构，必须通过相关性数据标定或关闭。
+
+建议优先关闭第 1、2、3、4 项，因为它们会直接改变公平性、峰值带宽和资源占用曲线；其余项目主要影响协议精度和与具体硬件实现的映射方式。

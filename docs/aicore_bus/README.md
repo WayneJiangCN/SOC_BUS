@@ -21,17 +21,19 @@ BIU / API
 
 1. [AI Core Ring-Lite 总线模型方案与架构](../ai_core_bus_v1_design.md)
    先了解模型定位、总体架构、事务路径、流控机制和性能精度边界。
-2. [code_organization.md](./code_organization.md)
+2. [AI Core 与 GPGPU-Sim 互连对比及需求收敛方案](../ai_core_interconnect_selection.md)
+   对照 `LOCAL_XBAR` 与 `INTERSIM/Intersim2`，了解可借鉴机制、当前差距和分阶段验收门。
+3. [code_organization.md](./code_organization.md)
    先看代码分层、主要文件和阅读入口。
-3. [ring_module_resources.md](./ring_module_resources.md)
+4. [ring_module_resources.md](./ring_module_resources.md)
    重点看每个模块持有哪些资源，以及模块之间如何连接。
-4. [ring_fabric_design.md](./ring_fabric_design.md)
+5. [ring_fabric_design.md](./ring_fabric_design.md)
    再看 `TmRingFabric` 如何创建和连接整张网络。
-5. [port_based_router_design.md](./port_based_router_design.md)
+6. [port_based_router_design.md](./port_based_router_design.md)
    继续看 Router/Link 的端口化设计。
-6. [arbitration.md](./arbitration.md)
+7. [arbitration.md](./arbitration.md)
    如果关心多输入竞争同一输出口，重点看仲裁。
-7. [performance_and_alignment.md](./performance_and_alignment.md)
+8. [performance_and_alignment.md](./performance_and_alignment.md)
    如果关心性能趋势、瓶颈和真实硬件对齐，重点看这页。
 
 ## 术语

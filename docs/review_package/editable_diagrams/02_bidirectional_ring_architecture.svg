@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="800" viewBox="0 0 1400 800">
+<defs>
+<marker id="a-blue" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#2563EB"/></marker>
+<marker id="a-orange" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#D97706"/></marker>
+<marker id="a-green" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#059669"/></marker>
+<marker id="a-gray" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#64748B"/></marker>
+<marker id="a-red" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#C2413B"/></marker>
+<style>.t{font-family:"Microsoft YaHei","Noto Sans CJK SC",Arial,sans-serif;fill:#1F2937}.s{font-size:18px}.m{font-size:21px;font-weight:600}.h{font-size:30px;font-weight:700}.sub{font-size:17px;fill:#475569}.tiny{font-size:15px;fill:#475569}</style>
+</defs>
+<rect x="0" y="0" width="1400" height="800" fill="#FFFFFF"/>
+<text x="48" y="48" class="t h">多核双向Ring总体架构</text>
+<text x="48" y="78" class="t sub">基线：端点接入与拓扑解耦；请求、写数据、响应为独立逻辑流量类，共享关系由链路资源配置决定</text>
+<rect x="330" y="160" width="165" height="76" rx="4" fill="#FFFFFF" stroke="#475569" stroke-width="2"/>
+<text x="412.5" y="189" text-anchor="middle" class="t m" style="font-size:17px">Ring Router 0</text>
+<text x="412.5" y="218" text-anchor="middle" class="t tiny">LOCAL / CW / CCW</text>
+<rect x="620" y="120" width="165" height="76" rx="4" fill="#FFFFFF" stroke="#475569" stroke-width="2"/>
+<text x="702.5" y="149" text-anchor="middle" class="t m" style="font-size:17px">Ring Router 1</text>
+<text x="702.5" y="178" text-anchor="middle" class="t tiny">LOCAL / CW / CCW</text>
+<rect x="915" y="160" width="165" height="76" rx="4" fill="#FFFFFF" stroke="#475569" stroke-width="2"/>
+<text x="997.5" y="189" text-anchor="middle" class="t m" style="font-size:17px">Ring Router 2</text>
+<text x="997.5" y="218" text-anchor="middle" class="t tiny">LOCAL / CW / CCW</text>
+<rect x="1015" y="375" width="165" height="76" rx="4" fill="#FFFFFF" stroke="#475569" stroke-width="2"/>
+<text x="1097.5" y="404" text-anchor="middle" class="t m" style="font-size:17px">Ring Router 3</text>
+<text x="1097.5" y="433" text-anchor="middle" class="t tiny">LOCAL / CW / CCW</text>
+<rect x="915" y="575" width="165" height="76" rx="4" fill="#FFFFFF" stroke="#475569" stroke-width="2"/>
+<text x="997.5" y="604" text-anchor="middle" class="t m" style="font-size:17px">Ring Router 4</text>
+<text x="997.5" y="633" text-anchor="middle" class="t tiny">LOCAL / CW / CCW</text>
+<rect x="620" y="620" width="165" height="76" rx="4" fill="#FFFFFF" stroke="#475569" stroke-width="2"/>
+<text x="702.5" y="649" text-anchor="middle" class="t m" style="font-size:17px">Ring Router 5</text>
+<text x="702.5" y="678" text-anchor="middle" class="t tiny">LOCAL / CW / CCW</text>
+<rect x="330" y="575" width="165" height="76" rx="4" fill="#FFFFFF" stroke="#475569" stroke-width="2"/>
+<text x="412.5" y="604" text-anchor="middle" class="t m" style="font-size:17px">Ring Router 6</text>
+<text x="412.5" y="633" text-anchor="middle" class="t tiny">LOCAL / CW / CCW</text>
+<rect x="230" y="375" width="165" height="76" rx="4" fill="#FFFFFF" stroke="#475569" stroke-width="2"/>
+<text x="312.5" y="404" text-anchor="middle" class="t m" style="font-size:17px">Ring Router 7</text>
+<text x="312.5" y="433" text-anchor="middle" class="t tiny">LOCAL / CW / CCW</text>
+<polyline points="495,198 620,158" fill="none" stroke="#2563EB" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="785,158 915,198" fill="none" stroke="#2563EB" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="1080,198 1097,375" fill="none" stroke="#2563EB" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="1097,451 1080,613" fill="none" stroke="#2563EB" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="915,613 785,658" fill="none" stroke="#2563EB" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="620,658 495,613" fill="none" stroke="#2563EB" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="330,613 312,451" fill="none" stroke="#2563EB" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="312,375 330,198" fill="none" stroke="#2563EB" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="620,166 495,206" fill="none" stroke="#059669" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 5" marker-end="url(#a-green)"/>
+<polyline points="915,206 785,166" fill="none" stroke="#059669" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 5" marker-end="url(#a-green)"/>
+<polyline points="1088,375 1072,206" fill="none" stroke="#059669" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 5" marker-end="url(#a-green)"/>
+<polyline points="1072,605 1088,451" fill="none" stroke="#059669" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 5" marker-end="url(#a-green)"/>
+<polyline points="785,650 915,605" fill="none" stroke="#059669" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 5" marker-end="url(#a-green)"/>
+<polyline points="495,605 620,650" fill="none" stroke="#059669" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 5" marker-end="url(#a-green)"/>
+<polyline points="320,451 338,605" fill="none" stroke="#059669" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 5" marker-end="url(#a-green)"/>
+<polyline points="338,206 320,375" fill="none" stroke="#059669" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 5" marker-end="url(#a-green)"/>
+<rect x="55" y="130" width="185" height="110" rx="4" fill="#EEF4FA" stroke="#2E74B5" stroke-width="2"/>
+<text x="147.5" y="159" text-anchor="middle" class="t m" style="font-size:18px">Master网络接口 M0</text>
+<text x="147.5" y="188" text-anchor="middle" class="t tiny">注入FIFO / OSD</text>
+<rect x="55" y="280" width="185" height="110" rx="4" fill="#EEF4FA" stroke="#2E74B5" stroke-width="2"/>
+<text x="147.5" y="309" text-anchor="middle" class="t m" style="font-size:18px">Master网络接口 M1</text>
+<text x="147.5" y="338" text-anchor="middle" class="t tiny">注入FIFO / OSD</text>
+<rect x="55" y="490" width="185" height="110" rx="4" fill="#EEF4FA" stroke="#2E74B5" stroke-width="2"/>
+<text x="147.5" y="519" text-anchor="middle" class="t m" style="font-size:18px">Master网络接口 M2..N</text>
+<text x="147.5" y="548" text-anchor="middle" class="t tiny">注入FIFO / OSD</text>
+<polyline points="240,185 330,198" fill="none" stroke="#2563EB" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="240,335 230,413" fill="none" stroke="#2563EB" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="240,545 330,613" fill="none" stroke="#2563EB" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<rect x="1160" y="130" width="190" height="110" rx="4" fill="#EEF8F4" stroke="#0B6E4F" stroke-width="2"/>
+<text x="1255.0" y="159" text-anchor="middle" class="t m" style="font-size:18px">Target网络接口 T0</text>
+<text x="1255.0" y="188" text-anchor="middle" class="t tiny">Credit / 请求FIFO</text>
+<rect x="1160" y="295" width="190" height="110" rx="4" fill="#EEF8F4" stroke="#0B6E4F" stroke-width="2"/>
+<text x="1255.0" y="324" text-anchor="middle" class="t m" style="font-size:18px">Target网络接口 T1</text>
+<text x="1255.0" y="353" text-anchor="middle" class="t tiny">Credit / 请求FIFO</text>
+<rect x="1160" y="490" width="190" height="110" rx="4" fill="#EEF8F4" stroke="#0B6E4F" stroke-width="2"/>
+<text x="1255.0" y="519" text-anchor="middle" class="t m" style="font-size:18px">Target网络接口 T2..M</text>
+<text x="1255.0" y="548" text-anchor="middle" class="t tiny">Credit / 请求FIFO</text>
+<polyline points="1080,198 1160,185" fill="none" stroke="#2563EB" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="1180,350 1098,413" fill="none" stroke="#2563EB" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="1080,613 1160,545" fill="none" stroke="#2563EB" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<rect x="500" y="325" width="400" height="150" rx="4" fill="#FAFAFA" stroke="#64748B" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="700.0" y="354" text-anchor="middle" class="t m" style="font-size:18px">全局策略与观测（不承载旁路数据）</text>
+<text x="700.0" y="383" text-anchor="middle" class="t tiny">地址映射与交织引擎  |  路由与仲裁策略</text>
+<text x="700.0" y="407" text-anchor="middle" class="t tiny">配置与约束管理  |  统计与追踪管理</text>
+<text x="700.0" y="431" text-anchor="middle" class="t tiny">所有数据必须经过Ring共享链路资源</text>
+<polyline points="700,325 700,250" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<polyline points="900,400 1015,413" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<polyline points="52,752 107,752" fill="none" stroke="#2563EB" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<text x="120" y="758" text-anchor="start" class="t tiny" style="">请求</text>
+<polyline points="242,752 297,752" fill="none" stroke="#D97706" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 6" marker-end="url(#a-orange)"/>
+<text x="310" y="758" text-anchor="start" class="t tiny" style="">写数据</text>
+<polyline points="432,752 487,752" fill="none" stroke="#059669" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 5" marker-end="url(#a-green)"/>
+<text x="500" y="758" text-anchor="start" class="t tiny" style="">响应</text>
+<polyline points="622,752 677,752" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<text x="690" y="758" text-anchor="start" class="t tiny" style="">配置/统计</text>
+<polyline points="812,752 867,752" fill="none" stroke="#C2413B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="2 6" marker-end="url(#a-red)"/>
+<text x="880" y="758" text-anchor="start" class="t tiny" style="">反压</text>
+</svg>

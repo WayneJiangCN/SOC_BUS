@@ -24,6 +24,7 @@ namespace
 inline uint32_t
 clamp_add(uint32_t cur, uint32_t inc, uint32_t max_val)
 {
+    // token 补充采用饱和加法，不能超过配置上限。
     if (cur >= max_val) {
         return max_val;
     }
@@ -76,6 +77,7 @@ TmBusFlowCtrl::reset()
 void
 TmBusFlowCtrl::update_tokens(tm_time_t now)
 {
+    // 同一时刻可能由多个请求路径调用，本判断保证 token 只更新一次。
     if (last_token_update_time_ == now) {
         return;
     }
@@ -116,6 +118,7 @@ TmBusFlowCtrl::can_send_to_target(uint32_t target_id, aic_req_type_t req_type,
      */
     auto size = pld->size;
     if (req_type == aic_req_type_t::RD_REQ) {
+        // 全局 OSD 只限制新事务，读请求和写命令都属于新事务入口。
         if (global_outstanding_ >= cfg_->global_osd) {
             global_osd_stalls_++;
             return false;
@@ -183,6 +186,7 @@ TmBusFlowCtrl::consume_target_credit(uint32_t target_id,
         return;
     }
 
+    // WR_DAT 不增加 target/global outstanding，只消耗本次写数据带宽。
     acc_bw_token_[target_id] -= size;
     wr_bw_token_[target_id] -= size;
 }
@@ -207,6 +211,7 @@ TmBusFlowCtrl::release_target_credit(uint32_t target_id, aic_req_type_t req_type
                      target_cfg->wr_slot_credit_max);
     }
 
+    // 下溢表示事务生命周期不成对，必须阻止无符号计数回绕成极大值。
     if (target_outstanding_[target_id] == 0) {
         std::cerr << "TmBusFlowCtrl: target outstanding underflow on target "
                   << target_id << std::endl;
@@ -278,6 +283,7 @@ TmBusFlowCtrl::calc_rsp_payload_size(p_tm_pld_t pld,
     if (pld == nullptr) {
         return 0;
     }
+    // 只有读响应携带完整数据；两类写响应在这里按纯头部处理。
     if (rsp_type == aic_req_type_t::RD_REQ) {
         return pld->size;
     }

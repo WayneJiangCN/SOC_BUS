@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="800" viewBox="0 0 1400 800">
+<defs>
+<marker id="a-blue" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#2563EB"/></marker>
+<marker id="a-orange" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#D97706"/></marker>
+<marker id="a-green" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#059669"/></marker>
+<marker id="a-gray" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#64748B"/></marker>
+<marker id="a-red" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#C2413B"/></marker>
+<style>.t{font-family:"Microsoft YaHei","Noto Sans CJK SC",Arial,sans-serif;fill:#1F2937}.s{font-size:18px}.m{font-size:21px;font-weight:600}.h{font-size:30px;font-weight:700}.sub{font-size:17px;fill:#475569}.tiny{font-size:15px;fill:#475569}</style>
+</defs>
+<rect x="0" y="0" width="1400" height="800" fill="#FFFFFF"/>
+<text x="48" y="48" class="t h">模型边界与系统上下文</text>
+<text x="48" y="78" class="t sub">评审问题：哪些行为属于总线模型，哪些由流量源与Target服务模型提供</text>
+<rect x="45" y="135" width="225" height="390" rx="4" fill="#F8FAFC" stroke="#64748B" stroke-width="2"/>
+<text x="157.5" y="164" text-anchor="middle" class="t m" style="font-size:18px">上游环境（边界外）</text>
+<text x="157.5" y="193" text-anchor="middle" class="t tiny">多Core/多Master</text>
+<text x="157.5" y="217" text-anchor="middle" class="t tiny">Trace/合成流量源</text>
+<text x="157.5" y="241" text-anchor="middle" class="t tiny">一致性/顺序适配</text>
+<text x="157.5" y="265" text-anchor="middle" class="t tiny">完成响应接收</text>
+<rect x="315" y="105" width="750" height="500" rx="4" fill="#F7FBFF" stroke="#2E74B5" stroke-width="2"/>
+<rect x="315" y="105" width="750" height="34" rx="4" fill="#DCE6F1"/>
+<text x="690.0" y="129" text-anchor="middle" class="t m" style="font-size:18px">多核SoC总线性能模型（边界内）</text>
+<rect x="355" y="175" width="180" height="135" rx="4" fill="#FFFFFF" stroke="#64748B" stroke-width="2"/>
+<text x="445.0" y="204" text-anchor="middle" class="t m" style="font-size:18px">流量源适配层</text>
+<text x="445.0" y="233" text-anchor="middle" class="t tiny">请求规范化</text>
+<text x="445.0" y="257" text-anchor="middle" class="t tiny">MasterID/TxnID</text>
+<text x="445.0" y="281" text-anchor="middle" class="t tiny">OSD准入</text>
+<rect x="575" y="175" width="205" height="135" rx="4" fill="#FFFFFF" stroke="#64748B" stroke-width="2"/>
+<text x="677.5" y="204" text-anchor="middle" class="t m" style="font-size:18px">互连传输平面</text>
+<text x="677.5" y="233" text-anchor="middle" class="t tiny">Ring路由/仲裁</text>
+<text x="677.5" y="257" text-anchor="middle" class="t tiny">FIFO/链路带宽</text>
+<text x="677.5" y="281" text-anchor="middle" class="t tiny">请求/数据/响应</text>
+<rect x="820" y="175" width="205" height="135" rx="4" fill="#FFFFFF" stroke="#64748B" stroke-width="2"/>
+<text x="922.5" y="204" text-anchor="middle" class="t m" style="font-size:18px">Target接入层</text>
+<text x="922.5" y="233" text-anchor="middle" class="t tiny">Credit准入</text>
+<text x="922.5" y="257" text-anchor="middle" class="t tiny">请求整形</text>
+<text x="922.5" y="281" text-anchor="middle" class="t tiny">响应回注</text>
+<rect x="355" y="380" width="205" height="135" rx="4" fill="#FFFFFF" stroke="#64748B" stroke-width="2"/>
+<text x="457.5" y="409" text-anchor="middle" class="t m" style="font-size:18px">地址映射与交织</text>
+<text x="457.5" y="438" text-anchor="middle" class="t tiny">地址域校验</text>
+<text x="457.5" y="462" text-anchor="middle" class="t tiny">Target选择</text>
+<text x="457.5" y="486" text-anchor="middle" class="t tiny">路径确定</text>
+<rect x="590" y="380" width="205" height="135" rx="4" fill="#FFFFFF" stroke="#64748B" stroke-width="2"/>
+<text x="692.5" y="409" text-anchor="middle" class="t m" style="font-size:18px">配置与约束管理</text>
+<text x="692.5" y="438" text-anchor="middle" class="t tiny">参数生效检查</text>
+<text x="692.5" y="462" text-anchor="middle" class="t tiny">单位/范围校验</text>
+<text x="692.5" y="486" text-anchor="middle" class="t tiny">配置指纹</text>
+<rect x="825" y="380" width="200" height="135" rx="4" fill="#FFFFFF" stroke="#64748B" stroke-width="2"/>
+<text x="925.0" y="409" text-anchor="middle" class="t m" style="font-size:18px">统计与追踪管理</text>
+<text x="925.0" y="438" text-anchor="middle" class="t tiny">延迟/吞吐</text>
+<text x="925.0" y="462" text-anchor="middle" class="t tiny">占用率/阻塞原因</text>
+<text x="925.0" y="486" text-anchor="middle" class="t tiny">事务路径追踪</text>
+<rect x="1110" y="135" width="245" height="390" rx="4" fill="#F8FAFC" stroke="#64748B" stroke-width="2"/>
+<text x="1232.5" y="164" text-anchor="middle" class="t m" style="font-size:18px">下游环境（边界外）</text>
+<text x="1232.5" y="193" text-anchor="middle" class="t tiny">L2服务模型</text>
+<text x="1232.5" y="217" text-anchor="middle" class="t tiny">DDR服务模型</text>
+<text x="1232.5" y="241" text-anchor="middle" class="t tiny">MMIO/其他Target</text>
+<text x="1232.5" y="265" text-anchor="middle" class="t tiny">可选RTL/硅数据基准</text>
+<polyline points="270,225 355,225" fill="none" stroke="#2563EB" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="270,270 355,270" fill="none" stroke="#D97706" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 6" marker-end="url(#a-orange)"/>
+<polyline points="355,325 285,325 285,335 270,335" fill="none" stroke="#059669" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 5" marker-end="url(#a-green)"/>
+<polyline points="535,240 575,240" fill="none" stroke="#2563EB" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="780,240 820,240" fill="none" stroke="#2563EB" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="1025,240 1110,240" fill="none" stroke="#2563EB" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<polyline points="1025,280 1110,280" fill="none" stroke="#D97706" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 6" marker-end="url(#a-orange)"/>
+<polyline points="1110,335 1025,335 1025,290 820,290" fill="none" stroke="#059669" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 5" marker-end="url(#a-green)"/>
+<polyline points="820,330 780,330 780,290 575,290" fill="none" stroke="#059669" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 5" marker-end="url(#a-green)"/>
+<polyline points="575,330 535,330 535,290 355,290" fill="none" stroke="#059669" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 5" marker-end="url(#a-green)"/>
+<polyline points="457,380 457,310" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<polyline points="692,380 692,310" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<polyline points="925,380 925,310" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<polyline points="1110,450 1025,450" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<polyline points="52,752 107,752" fill="none" stroke="#2563EB" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#a-blue)"/>
+<text x="120" y="758" text-anchor="start" class="t tiny" style="">请求</text>
+<polyline points="242,752 297,752" fill="none" stroke="#D97706" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 6" marker-end="url(#a-orange)"/>
+<text x="310" y="758" text-anchor="start" class="t tiny" style="">写数据</text>
+<polyline points="432,752 487,752" fill="none" stroke="#059669" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="4 5" marker-end="url(#a-green)"/>
+<text x="500" y="758" text-anchor="start" class="t tiny" style="">响应</text>
+<polyline points="622,752 677,752" fill="none" stroke="#64748B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="12 5 2 5" marker-end="url(#a-gray)"/>
+<text x="690" y="758" text-anchor="start" class="t tiny" style="">配置/统计</text>
+<polyline points="812,752 867,752" fill="none" stroke="#C2413B" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="2 6" marker-end="url(#a-red)"/>
+<text x="880" y="758" text-anchor="start" class="t tiny" style="">反压</text>
+</svg>

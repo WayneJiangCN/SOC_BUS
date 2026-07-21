@@ -1,108 +1,49 @@
 # Port-Based Router 设计
 
-## 为什么要端口化
+## 当前模型边界
 
-旧版 router 只表达“当前 router 把包推进到下一个 router”。新版 router 明确引入方向 port，是为了把以下三件事拆清楚：
+当前 `TmRingRouter` 是双向 Ring 的轻量转发节点，方向集合固定为 `LOCAL`、`EAST` 和 `WEST`。旧文档中的 `NORTH/SOUTH` 属于历史 Mesh 方案，不是当前 `tm_ring_*` 实现。
 
-- 包从哪个输入方向进入
-- 包想从哪个输出方向离开
-- 同一拍哪些输入在竞争同一个输出
+端口化的目的，是明确 packet 从哪个方向进入、将从哪个方向离开，以及哪些输入会竞争同一个输出。Router 仍是事务/协议段级，不模拟 flit crossbar、Virtual Channel（VC）或逐 flit credit。
 
-当前方向集合固定为：
+## 输入与连接
 
-- `LOCAL`
-- `NORTH`
-- `SOUTH`
-- `EAST`
-- `WEST`
-
-## Router 内部状态
-
-每个输入 port 都持有自己的本地队列：
-
-- `REQ`
-- `WR_DAT`
-- `WR_REQ_RSP`
-- `WR_DAT_RSP`
-- `RD_RSP(lane)`
-
-这意味着当前 router 的状态不再是“一个总队列”，而是“按输入方向拆开的多类队列”。
-
-## 输出口仲裁
-
-当前模型的仲裁语义是：
-
-- 每个 output port 每拍最多选 1 个 winner
-- 同一个 input port 每拍最多成功发送 1 个单位
-- `REQ / WR_DAT / RSP` 共用同一类 output port 资源
-
-这是一种典型的 NoC-lite 抽象：
-
-- 保留方向竞争
-- 保留请求/数据/响应的相互影响
-- 不继续下沉到 flit/crossbar/VC
-
-## Link 绑定方式
-
-链路不再只是 `src_router -> dst_router`，而是：
+EAST/WEST 输入分别由对应上游 Link 连接到 `port_infs_`。LOCAL 不是 Router 内部的一组自有 FIFO，而是通过 `local_master_infs_` 和 `local_target_infs_` 引用 Master NIU 或 TargetPort 的接口队列。各接口按 command/lane 划分 channel，Router 从有效 channel 的队头选择候选。
 
 ```text
-src_router.src_dir -> dst_router.dst_dir
+Master NIU / TargetPort -- LOCAL --+
+                                  |
+Upstream EAST Link ----- EAST ----+--> route/arb --> LOCAL/EAST/WEST
+                                  |
+Upstream WEST Link ----- WEST ----+
 ```
 
-例如：
+请求根据 `dst_node` 路由到 Target，响应根据 `src_node` 返回 Master。当前位置等于目标节点时走 LOCAL，否则 Topology 在 EAST/WEST 间选择最短方向；等距时当前规则选择 EAST。
+
+## 当前仲裁状态
+
+当前实现按 `in_dir × subnet` 独立推进，在每个输入内部通过 `input_rr_ptr_` 轮询 Traffic Class/lane。packet 解析输出方向、检查本地接口或 Link 容量后立即尝试提交。`output_rr_ptr_` 只记录提交历史，没有参与跨输入 winner 选择。
+
+因此，有限 Link 可以形成竞争和反压，但多个输入同拍争一个输出时，winner 可能受事件 callback 执行顺序影响。当前版本不能保证严格输出 RR、bounded fairness，也没有旧文档曾描述的 `OutputArbDebug`。目标仲裁结构及验收条件见 [仲裁说明](./arbitration.md)。
+
+## Link 绑定与传输
+
+Link 绑定关系为：
 
 ```text
-Router(3).EAST -> Router(4).WEST
+src_router.src_dir -> dst_router.opposite_dir
 ```
 
-这样可以明确表达：
+例如 `Router(3).EAST -> Router(4).WEST`。每个方向的 REQ 和 RSP subnet 分别维护 FIFO、inflight、`next_send_time` 和统计。
 
-- 当前包是从哪个输出方向发出的
-- 到达下一跳时落到哪个输入方向队列
+packet 进入 Link 后，以 `ceil(packet_bytes / link_width_bytes)` 计算序列化间隔，并在固定 `ring_link_latency` 后到达下游输入接口。传播延迟可以与后续 packet 的序列化流水重叠；Link FIFO 或 max inflight 耗尽时，反压返回 Router。该模型比单一 hop time 更接近流水链路，但仍不表达 packet 内 flit 交错。
 
-## 链路发射语义
+## 目标状态与统计
 
-当前 `TmRingLink` 的语义是：
+Router 应改为每拍集中收集全部输入候选，再按 `(subnet, output_port)` 做 RR/WRR 或候选 iSLIP 仲裁。每个物理输出最多提交一个 winner，只有成功提交才弹出输入并推进仲裁指针。本地输出必须与 EAST/WEST 一样纳入资源约束。
 
-- 每条有向 link 每拍最多发 1 个单位
-- 发射后包进入 in-flight 队列
-- 经过 `latency` 拍后，包落到目标 router 对应输入口
+每个 Router 输出至少统计 request、contention、grant、blocked grant、按 Master/Traffic Class 的 win、仲裁等待、最大连续等待和下游阻塞原因。Link 继续按方向和 subnet 统计 packet/byte、busy cycle、inflight peak、FIFO full 和下游 full。只有这些统计与放宽实验一起成立时，才能把某个 Router 输出或 Link 判定为关键瓶颈。
 
-它不再使用“占一次锁整条边很多拍”的粗粒度做法，而是更接近：
+## 与真实硬件的距离
 
-- 逐拍发射
-- 延迟后到达
-
-## 调试与统计
-
-`TmRingRouter` 为每个 output port 保存 `OutputArbDebug`。当前统计重点是：
-
-- 仲裁轮数
-- 发生竞争的轮数
-- `REQ / WR_DAT / RSP` 各自出现为候选的轮数
-- `REQ / WR_DAT / RSP` 各自获胜次数
-- 最近一次 winner 来自哪个输入方向、哪个 class
-
-这组统计的用途是：
-
-- 看哪个方向最忙
-- 看哪类流量最容易被压制
-- 看竞争主要发生在 request、write data 还是 response
-
-## 和真实硬件的距离
-
-当前 port-based router 已经比旧版更接近硬件，但仍然是事务级模型。它表达的是：
-
-- 端口方向
-- 输出竞争
-- 链路逐拍发射
-
-它还没有表达的是：
-
-- flit
-- per-flit crossbar
-- VC/credit
-- router pipeline 分级
-
-所以它更适合 SoC 级性能模型，而不是 RTL 对拍。
+该抽象适合表达端口位置、多跳路径、包级输出竞争和链路流水。它不能直接回答 flit/VC 级队头阻塞、Router 微流水旁路、credit 往返或 RTL 单拍优化收益。是否增加 segment/flit/VC，必须由对标误差证明，而不是仅因 GPGPU-Sim Intersim2 提供这些机制就直接照搬。

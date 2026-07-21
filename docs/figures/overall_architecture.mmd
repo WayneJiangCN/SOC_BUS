@@ -1,0 +1,43 @@
+flowchart LR
+    subgraph EXT_M["外部 Master 域"]
+        M["标准 Master 接口"]
+    end
+
+    subgraph BUS["多核互连总线模型边界"]
+        MA["Master Adapter\nID/Ordering/OSD"]
+        DEC["地址译码与交织"]
+        RTR["Router\n路由/输出仲裁"]
+        LINK["Link\n传播/序列化/FIFO"]
+        TA["Target Adapter\n队列/发射/响应"]
+        FC["流控管理\nGlobal/Target OSD/Credit/Token"]
+        MON["性能监控\n延迟/带宽/占用/Stall"]
+    end
+
+    subgraph EXT_T["外部 Target 域"]
+        T["标准 Target 接口"]
+    end
+
+    M -->|请求| MA
+    M ==>|写数据| MA
+    MA --> DEC
+    MA ==> DEC
+    DEC --> RTR
+    DEC ==> RTR
+    RTR --> LINK
+    RTR ==> LINK
+    LINK --> TA
+    LINK ==> TA
+    TA --> T
+    TA ==> T
+    T -.->|响应| TA
+    TA -.-> RTR
+    RTR -.-> LINK
+    LINK -.-> MA
+    MA -.-> M
+    FC -.->|Credit/反压| MA
+    FC -.->|Credit/Token| TA
+    MA -.->|统计| MON
+    RTR -.->|统计| MON
+    LINK -.->|统计| MON
+    TA -.->|统计| MON
+    LEGEND["图例：实线=请求；粗线=写数据；虚线=响应；带标签点线=控制/观测"]

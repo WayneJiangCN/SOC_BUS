@@ -1,0 +1,20 @@
+flowchart LR
+    SRC["标准事务源\n单/多 Master 流量"]
+    CFG["配置与工作负载\n拓扑/延迟/OSD/交织"]
+    CLK["时钟与事件调度"]
+    BUS["多核互连总线 ESL 性能模型"]
+    TGT["标准 Target 模型\nL2/DDR/外设能力"]
+    RPT["检查器与报告\n正确性/性能/精度"]
+    REF["参考对象\nRTL/可信架构模型"]
+
+    SRC -->|请求| BUS
+    SRC ==>|写数据| BUS
+    BUS -.->|响应| SRC
+    BUS -->|请求| TGT
+    BUS ==>|写数据| TGT
+    TGT -.->|响应| BUS
+    CFG -.->|配置| BUS
+    CLK -.->|时序控制| BUS
+    BUS -.->|事务与统计| RPT
+    REF -.->|对标数据| RPT
+    LEGEND["图例：实线=请求；粗线=写数据；虚线=响应；带标签点线=控制/观测"]

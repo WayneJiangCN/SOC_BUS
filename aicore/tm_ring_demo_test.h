@@ -21,345 +21,12 @@
 #include "tm_engine.h"
 #include "tm_mem.h"
 #include "tm_ring.h"
+#include "tm_ring_demo_config.h"
 #include "types.h"
 
 namespace tm_ring_demo {
 
 using namespace tm_engine;
-
-constexpr uint64_t kDemoSrcAddr = 0x30000000ull;
-constexpr uint64_t kDemoDstAddr = 0x40000000ull;
-constexpr uint64_t kMasterAddrStride = 0x01000000ull;
-constexpr uint64_t kTargetAddressLimit = 0x80000000ull;
-constexpr uint32_t kDemoCycles = 20000;
-
-struct RingDemoConfig
-{
-    std::string name = "single_rw";
-    uint32_t num_masters = 1;
-    uint32_t num_targets = 1;
-    uint32_t uops_per_master = TOTAL_UOP_COUNT;
-    uint32_t cycles = kDemoCycles;
-
-    bool target_interleave = false;
-    tm_bus_interleave_type_t interleave_type =
-        tm_bus_interleave_type_t::LINEAR;
-    uint32_t interleave_size = BAND_WIDTH;
-    uint32_t interleave_hash_shift = 6;
-    uint32_t interleave_hash_seed = 0;
-
-    uint32_t target_frontend_latency = 1;
-    uint32_t target_forward_latency = 0;
-    uint32_t target_response_latency = 1;
-    uint32_t target_header_latency = 1;
-    uint32_t target_width_bytes = 32;
-    uint32_t hotspot_threshold = 16;
-    uint32_t hotspot_penalty = 0;
-
-    uint32_t master_fifo_depth = 16;
-    uint32_t target_fifo_depth = 16;
-    uint32_t ring_fifo_depth = 8;
-    uint32_t master_inf_delay = 1;
-    uint32_t target_inf_delay = 1;
-
-    uint32_t master_rd_osd = 16;
-    uint32_t master_wr_osd = 16;
-    uint32_t global_osd = 64;
-    // Zero means inherit the corresponding limit from the memory config.
-    uint32_t target_rd_osd = 0;
-    uint32_t target_wr_osd = 0;
-    uint32_t target_acc_osd = 0;
-
-    uint32_t ring_link_latency = 1;
-    uint32_t ring_link_width_bytes = 16;
-    uint32_t ring_req_header_bytes = 16;
-    uint32_t ring_rsp_header_bytes = 16;
-    uint32_t ring_link_max_inflight = 8;
-
-    double performance_target_pct = 80.0;
-    double clock_ghz = 1.0;
-    bool require_performance_target = false;
-};
-
-inline RingDemoConfig
-make_demo_case(const std::string& name)
-{
-    RingDemoConfig tc;
-    tc.name = name;
-
-    if (name == "single_rw") {
-        return tc;
-    }
-    if (name == "multi_master") {
-        tc.num_masters = 4;
-        tc.uops_per_master = 256;
-        tc.cycles = 40000;
-        return tc;
-    }
-    if (name == "multi_target_linear" ||
-        name == "multi_master_multi_target") {
-        tc.num_masters = 4;
-        tc.num_targets = 4;
-        tc.uops_per_master = 256;
-        tc.cycles = 50000;
-        tc.target_interleave = true;
-        return tc;
-    }
-    if (name == "backpressure") {
-        tc.num_masters = 4;
-        tc.num_targets = 2;
-        tc.uops_per_master = 256;
-        tc.cycles = 60000;
-        tc.target_interleave = true;
-        tc.master_fifo_depth = 2;
-        tc.target_fifo_depth = 2;
-        tc.ring_fifo_depth = 2;
-        tc.master_rd_osd = 16;
-        tc.master_wr_osd = 16;
-        tc.global_osd = 64;
-        return tc;
-    }
-    throw std::invalid_argument("unknown ring demo case: " + name);
-}
-
-inline bool
-parse_u32(const std::string& text, const std::string& option,
-          uint32_t* result, std::string* error)
-{
-    try {
-        size_t consumed = 0;
-        const unsigned long long value = std::stoull(text, &consumed, 0);
-        if (consumed != text.size() ||
-            value > std::numeric_limits<uint32_t>::max()) {
-            throw std::out_of_range("u32");
-        }
-        *result = static_cast<uint32_t>(value);
-        return true;
-    } catch (...) {
-        *error = option + " expects a 32-bit unsigned integer, got: " + text;
-        return false;
-    }
-}
-
-inline bool
-parse_double(const std::string& text, const std::string& option,
-             double* result, std::string* error)
-{
-    try {
-        size_t consumed = 0;
-        const double value = std::stod(text, &consumed);
-        if (consumed != text.size()) {
-            throw std::out_of_range("double");
-        }
-        *result = value;
-        return true;
-    } catch (...) {
-        *error = option + " expects a number, got: " + text;
-        return false;
-    }
-}
-
-inline bool
-apply_option(const std::string& name, const std::string& value,
-             RingDemoConfig* tc, std::string* error)
-{
-    if (name == "--interleave") {
-        if (value == "none") {
-            tc->target_interleave = false;
-            return true;
-        }
-        if (value == "linear") {
-            tc->target_interleave = true;
-            tc->interleave_type = tm_bus_interleave_type_t::LINEAR;
-            return true;
-        }
-        if (value == "xor") {
-            tc->target_interleave = true;
-            tc->interleave_type = tm_bus_interleave_type_t::XOR_HASH;
-            return true;
-        }
-        *error = "--interleave expects none, linear or xor, got: " + value;
-        return false;
-    }
-    if (name == "--perf-target") {
-        return parse_double(value, name, &tc->performance_target_pct, error);
-    }
-    if (name == "--clock-ghz") {
-        return parse_double(value, name, &tc->clock_ghz, error);
-    }
-
-    uint32_t* field = nullptr;
-    if (name == "--masters") {
-        field = &tc->num_masters;
-    } else if (name == "--targets") {
-        field = &tc->num_targets;
-    } else if (name == "--uops") {
-        field = &tc->uops_per_master;
-    } else if (name == "--cycles") {
-        field = &tc->cycles;
-    } else if (name == "--interleave-size") {
-        field = &tc->interleave_size;
-    } else if (name == "--interleave-hash-shift") {
-        field = &tc->interleave_hash_shift;
-    } else if (name == "--interleave-hash-seed") {
-        field = &tc->interleave_hash_seed;
-    } else if (name == "--target-frontend-latency") {
-        field = &tc->target_frontend_latency;
-    } else if (name == "--target-forward-latency") {
-        field = &tc->target_forward_latency;
-    } else if (name == "--target-response-latency") {
-        field = &tc->target_response_latency;
-    } else if (name == "--target-header-latency") {
-        field = &tc->target_header_latency;
-    } else if (name == "--target-width") {
-        field = &tc->target_width_bytes;
-    } else if (name == "--hotspot-threshold") {
-        field = &tc->hotspot_threshold;
-    } else if (name == "--hotspot-penalty") {
-        field = &tc->hotspot_penalty;
-    } else if (name == "--link-latency") {
-        field = &tc->ring_link_latency;
-    } else if (name == "--link-width") {
-        field = &tc->ring_link_width_bytes;
-    } else if (name == "--link-max-inflight") {
-        field = &tc->ring_link_max_inflight;
-    } else if (name == "--master-inf-delay") {
-        field = &tc->master_inf_delay;
-    } else if (name == "--target-inf-delay") {
-        field = &tc->target_inf_delay;
-    } else if (name == "--master-fifo-depth") {
-        field = &tc->master_fifo_depth;
-    } else if (name == "--target-fifo-depth") {
-        field = &tc->target_fifo_depth;
-    } else if (name == "--ring-fifo-depth") {
-        field = &tc->ring_fifo_depth;
-    } else if (name == "--master-rd-osd") {
-        field = &tc->master_rd_osd;
-    } else if (name == "--master-wr-osd") {
-        field = &tc->master_wr_osd;
-    } else if (name == "--global-osd") {
-        field = &tc->global_osd;
-    } else if (name == "--target-rd-osd") {
-        field = &tc->target_rd_osd;
-    } else if (name == "--target-wr-osd") {
-        field = &tc->target_wr_osd;
-    } else if (name == "--target-acc-osd") {
-        field = &tc->target_acc_osd;
-    } else {
-        *error = "unknown option: " + name;
-        return false;
-    }
-    return parse_u32(value, name, field, error);
-}
-
-inline bool
-validate_config(const RingDemoConfig& tc, std::string* error);
-
-inline bool
-parse_option_string(const std::string& options, RingDemoConfig* tc,
-                    std::string* error)
-{
-    std::istringstream input(options);
-    std::string token;
-    while (input >> token) {
-        if (token == "--require-perf-target") {
-            tc->require_performance_target = true;
-            continue;
-        }
-        if (token.rfind("--", 0) != 0) {
-            *error = "unexpected option token: " + token;
-            return false;
-        }
-
-        std::string name = token;
-        std::string value;
-        const size_t equal = token.find('=');
-        if (equal != std::string::npos) {
-            name = token.substr(0, equal);
-            value = token.substr(equal + 1);
-        } else if (!(input >> value)) {
-            *error = "missing value for option: " + name;
-            return false;
-        }
-        if (!apply_option(name, value, tc, error)) {
-            return false;
-        }
-    }
-    return true;
-}
-
-inline bool
-apply_utest_options(RingDemoConfig* tc, std::string* error)
-{
-    const char* options_env = std::getenv("TM_RING_DEMO_OPTIONS");
-    if (options_env != nullptr && *options_env != '\0' &&
-        !parse_option_string(options_env, tc, error)) {
-        return false;
-    }
-    return validate_config(*tc, error);
-}
-
-inline bool
-validate_config(const RingDemoConfig& tc, std::string* error)
-{
-    if (tc.num_masters == 0 || tc.num_targets == 0 ||
-        tc.uops_per_master == 0 || tc.cycles == 0) {
-        *error = "masters, targets, uops and cycles must be non-zero";
-        return false;
-    }
-    if (tc.uops_per_master % 2 != 0) {
-        *error = "uops must be even because two reads produce one write";
-        return false;
-    }
-    if (tc.interleave_size == 0 || tc.target_width_bytes == 0 ||
-        tc.ring_link_width_bytes == 0 || tc.master_fifo_depth == 0 ||
-        tc.target_fifo_depth == 0 || tc.ring_fifo_depth == 0 ||
-        tc.ring_link_max_inflight == 0 || tc.master_rd_osd == 0 ||
-        tc.master_wr_osd == 0 || tc.global_osd == 0) {
-        *error = "width, FIFO, link inflight and master/global OSD values "
-                 "must be non-zero";
-        return false;
-    }
-    if (tc.master_inf_delay == std::numeric_limits<uint32_t>::max() ||
-        tc.target_inf_delay == std::numeric_limits<uint32_t>::max()) {
-        *error = "interface delay must be smaller than UINT32_MAX";
-        return false;
-    }
-    if (!std::isfinite(tc.performance_target_pct) ||
-        tc.performance_target_pct < 0.0 ||
-        tc.performance_target_pct > 100.0) {
-        *error = "performance target must be between 0 and 100";
-        return false;
-    }
-    if (!std::isfinite(tc.clock_ghz) || tc.clock_ghz <= 0.0) {
-        *error = "clock frequency must be greater than zero";
-        return false;
-    }
-    if (tc.target_interleave &&
-        tc.interleave_type == tm_bus_interleave_type_t::XOR_HASH &&
-        tc.interleave_hash_shift >= 64) {
-        *error = "interleave hash shift must be smaller than 64";
-        return false;
-    }
-    const uint64_t source_bytes =
-        static_cast<uint64_t>(tc.uops_per_master) * BAND_WIDTH;
-    const uint64_t result_bytes =
-        static_cast<uint64_t>(tc.uops_per_master / 2) * sizeof(uint32_t);
-    if (source_bytes > std::numeric_limits<uint32_t>::max() ||
-        source_bytes > kMasterAddrStride || result_bytes > kMasterAddrStride) {
-        *error = "per-master address range exceeds the configured stride";
-        return false;
-    }
-    const uint64_t last_master = tc.num_masters - 1;
-    if (kDemoSrcAddr + last_master * kMasterAddrStride + source_bytes >
-            kTargetAddressLimit ||
-        kDemoDstAddr + last_master * kMasterAddrStride + result_bytes >
-            kTargetAddressLimit) {
-        *error = "master address range exceeds target address space";
-        return false;
-    }
-    return true;
-}
 
 inline uint32_t
 configured_or(uint32_t configured, uint32_t fallback)
@@ -583,13 +250,14 @@ latency_min_or_zero(uint64_t count, uint64_t value)
 
 template <typename DemoT>
 inline int
-run_demo(const std::string& cfg_file_name, const RingDemoConfig& test_case)
+run_demo(const std::string& ddr_config_file,
+         const RingDemoConfig& test_case)
 {
     tm_init();
     auto clk = tm_make_clk();
 
     auto demo_cfg = std::make_shared<cfg::Cfg>();
-    demo_cfg->read_cfg_file(cfg_file_name);
+    demo_cfg->read_cfg_file(ddr_config_file);
     auto ddr_cfg = tm_make_mem_cfg(std::string("ddr"), demo_cfg);
 
     std::vector<p_tm_mem_t> targets;
@@ -711,6 +379,7 @@ run_demo(const std::string& cfg_file_name, const RingDemoConfig& test_case)
     std::vector<double> master_rates;
 
     std::cout << "TEST_CONFIG case=" << test_case.name
+              << " ddr_config=" << ddr_config_file
               << " masters=" << test_case.num_masters
               << " targets=" << test_case.num_targets
               << " uops_per_master=" << test_case.uops_per_master
@@ -923,7 +592,9 @@ run_demo(const std::string& cfg_file_name, const RingDemoConfig& test_case)
     const uint64_t target_slot_stalls = ring->target_slot_stalls();
     const uint64_t bandwidth_token_stalls =
         ring->bandwidth_token_stalls();
-    const uint64_t ring_link_stalls = ring->ring_link_stalls();
+    const TmRingLinkStallBreakdown ring_link_breakdown =
+        ring->ring_link_stall_breakdown();
+    const uint64_t ring_link_stalls = ring_link_breakdown.total();
     const uint64_t fabric_stalls = global_osd_stalls + target_slot_stalls +
                                    bandwidth_token_stalls + ring_link_stalls;
     const uint64_t all_stalls = endpoint_stalls + fabric_stalls;
@@ -947,7 +618,21 @@ run_demo(const std::string& cfg_file_name, const RingDemoConfig& test_case)
     }
     if (ring_link_stalls > dominant_stalls) {
         dominant_stalls = ring_link_stalls;
-        dominant_bottleneck = "ring_link";
+        dominant_bottleneck = "ring_link_serialization_busy";
+        uint64_t dominant_link_stalls =
+            ring_link_breakdown.serialization_busy;
+        if (ring_link_breakdown.inflight_limit > dominant_link_stalls) {
+            dominant_link_stalls = ring_link_breakdown.inflight_limit;
+            dominant_bottleneck = "ring_link_inflight_limit";
+        }
+        if (ring_link_breakdown.link_fifo_full > dominant_link_stalls) {
+            dominant_link_stalls = ring_link_breakdown.link_fifo_full;
+            dominant_bottleneck = "ring_link_fifo_full";
+        }
+        if (ring_link_breakdown.downstream_fifo_full >
+            dominant_link_stalls) {
+            dominant_bottleneck = "ring_link_downstream_fifo_full";
+        }
     }
 
     const uint32_t parallel_paths =
@@ -1029,6 +714,14 @@ run_demo(const std::string& cfg_file_name, const RingDemoConfig& test_case)
               << global_osd_stalls
               << " target_slot_stalls=" << target_slot_stalls
               << " bandwidth_token_stalls=" << bandwidth_token_stalls
+              << " ring_link_serialization_busy_stalls="
+              << ring_link_breakdown.serialization_busy
+              << " ring_link_inflight_limit_stalls="
+              << ring_link_breakdown.inflight_limit
+              << " ring_link_fifo_full_stalls="
+              << ring_link_breakdown.link_fifo_full
+              << " ring_link_downstream_fifo_full_stalls="
+              << ring_link_breakdown.downstream_fifo_full
               << " ring_link_stalls=" << ring_link_stalls
               << " dominant=" << dominant_bottleneck << std::endl;
     std::cout << "TEST_FAIRNESS jain_index=" << fairness << std::endl;
@@ -1069,7 +762,7 @@ class ScopedStreamRedirect
 
 template <typename DemoT>
 inline int
-run_demo_to_file(const std::string& cfg_file_name,
+run_demo_to_file(const std::string& ddr_config_file,
                  const RingDemoConfig& test_case,
                  const std::string& result_file_name)
 {
@@ -1084,7 +777,7 @@ run_demo_to_file(const std::string& cfg_file_name,
     ScopedStreamRedirect cerr_redirect(std::cerr, result_file.rdbuf());
     std::cout << "TM_RING_DEMO_RESULT_FILE " << result_file_name
               << std::endl;
-    return run_demo<DemoT>(cfg_file_name, test_case);
+    return run_demo<DemoT>(ddr_config_file, test_case);
 }
 
 }  // namespace tm_ring_demo
