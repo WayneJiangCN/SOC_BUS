@@ -78,6 +78,10 @@ struct PemTrDemoStats
     uint64_t completed_pairs = 0;
     uint64_t write_requests = 0;
     uint64_t write_responses = 0;
+    uint64_t nonzero_completed_pairs = 0;
+    uint64_t completed_result_checksum = 0;
+    uint64_t nonzero_write_requests = 0;
+    uint64_t write_value_checksum = 0;
     uint64_t read_bytes = 0;
     uint64_t write_bytes = 0;
 

@@ -181,6 +181,54 @@ struct MemoryCheck
 };
 
 inline MemoryCheck
+verify_preloaded_memory(const std::vector<p_tm_mem_t>& targets,
+                        const RingDemoConfig& tc,
+                        std::vector<std::string>* failures)
+{
+    MemoryCheck result;
+    constexpr uint32_t kExpectedPreloadWord = 0x01010101u;
+    uint32_t detailed_errors = 0;
+    constexpr uint32_t kMaxDetailedErrors = 8;
+
+    for (uint32_t master = 0; master < tc.num_masters; ++master) {
+        const uint64_t src_base =
+            kDemoSrcAddr + master * kMasterAddrStride;
+        for (uint32_t uop = 0; uop < tc.uops_per_master; ++uop) {
+            const uint64_t addr = src_base + uop * BAND_WIDTH;
+            const uint32_t target_id = target_for_address(tc, addr);
+            uint32_t actual = 0;
+            ++result.checked;
+            if (!targets[target_id]->pv_read(
+                    addr, sizeof(actual),
+                    reinterpret_cast<uint8_t*>(&actual))) {
+                ++result.read_failures;
+                if (detailed_errors++ < kMaxDetailedErrors) {
+                    std::ostringstream os;
+                    os << "preload read failed: master=" << master
+                       << " uop=" << uop << " target=" << target_id
+                       << " addr=0x" << std::hex << addr;
+                    failures->push_back(os.str());
+                }
+                continue;
+            }
+            if (actual != kExpectedPreloadWord) {
+                ++result.mismatches;
+                if (detailed_errors++ < kMaxDetailedErrors) {
+                    std::ostringstream os;
+                    os << "preload mismatch: master=" << master
+                       << " uop=" << uop << " target=" << target_id
+                       << " addr=0x" << std::hex << addr
+                       << " expected=0x" << kExpectedPreloadWord
+                       << " actual=0x" << actual;
+                    failures->push_back(os.str());
+                }
+            }
+        }
+    }
+    return result;
+}
+
+inline MemoryCheck
 verify_demo_memory(const std::vector<p_tm_mem_t>& targets,
                    const RingDemoConfig& tc,
                    std::vector<std::string>* failures)
@@ -344,6 +392,8 @@ run_demo(const std::string& ddr_config_file,
             failures.push_back(os.str());
         }
     }
+    const MemoryCheck preload_memory =
+        verify_preloaded_memory(targets, test_case, &failures);
 
     for (uint32_t master = 0; master < test_case.num_masters; ++master) {
         const uint64_t src_addr =
@@ -390,6 +440,10 @@ run_demo(const std::string& ddr_config_file,
     uint64_t total_pairs = 0;
     uint64_t total_writes = 0;
     uint64_t total_write_responses = 0;
+    uint64_t total_nonzero_pairs = 0;
+    uint64_t total_result_checksum = 0;
+    uint64_t total_nonzero_write_requests = 0;
+    uint64_t total_write_value_checksum = 0;
     uint64_t total_read_bytes = 0;
     uint64_t total_write_bytes = 0;
     uint64_t total_read_stalls = 0;
@@ -539,6 +593,10 @@ run_demo(const std::string& ddr_config_file,
         total_pairs += stat.completed_pairs;
         total_writes += stat.write_requests;
         total_write_responses += stat.write_responses;
+        total_nonzero_pairs += stat.nonzero_completed_pairs;
+        total_result_checksum += stat.completed_result_checksum;
+        total_nonzero_write_requests += stat.nonzero_write_requests;
+        total_write_value_checksum += stat.write_value_checksum;
         // Throughput is based on completed responses. Counting issued bytes
         // makes an incomplete/deadlocked run look faster than the link peak.
         total_read_bytes += stat.read_responses * BAND_WIDTH;
@@ -677,6 +735,8 @@ run_demo(const std::string& ddr_config_file,
     const uint64_t expected_total_writes =
         expected_writes * test_case.num_masters;
     const bool measurement_valid =
+        preload_memory.mismatches == 0 &&
+        preload_memory.read_failures == 0 &&
         total_reads == expected_total_reads &&
         total_read_responses == expected_total_reads &&
         total_pairs == expected_total_writes &&
@@ -707,6 +767,19 @@ run_demo(const std::string& ddr_config_file,
               << " read_failures=" << memory.read_failures
               << " expected_value=0x" << std::hex << expected_demo_result()
               << std::dec << std::endl;
+    std::cout << "TEST_PRELOAD checked=" << preload_memory.checked
+              << " mismatches=" << preload_memory.mismatches
+              << " read_failures=" << preload_memory.read_failures
+              << " expected_word=0x" << std::hex << 0x01010101u
+              << std::dec << std::endl;
+    std::cout << "TEST_DATA nonzero_completed_pairs="
+              << total_nonzero_pairs
+              << " completed_result_checksum=0x" << std::hex
+              << total_result_checksum
+              << " nonzero_write_requests=" << std::dec
+              << total_nonzero_write_requests
+              << " write_value_checksum=0x" << std::hex
+              << total_write_value_checksum << std::dec << std::endl;
     std::cout << "TEST_PERF completion_cycles=" << completion_cycles
               << " read_completion_cycles=" << read_completion_cycles
               << " read_payload_bytes_per_cycle=" << read_bpc
