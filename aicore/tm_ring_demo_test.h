@@ -291,16 +291,6 @@ run_demo(const std::string& ddr_config_file,
     }
 
     std::vector<std::string> failures;
-    for (uint32_t master = 0; master < test_case.num_masters; ++master) {
-        const uint64_t src_addr =
-            kDemoSrcAddr + master * kMasterAddrStride;
-        const uint32_t bytes = test_case.uops_per_master * BAND_WIDTH;
-        if (!preload_demo_data(targets, src_addr, bytes)) {
-            std::ostringstream os;
-            os << "source preload failed for master " << master;
-            failures.push_back(os.str());
-        }
-    }
 
     auto ring_cfg = make_demo_ring_cfg(ddr_cfg, test_case);
     auto ring = tm_make_ring(clk, ring_cfg);
@@ -339,6 +329,20 @@ run_demo(const std::string& ddr_config_file,
     }
     for (auto& demo : demos) {
         demo->reset();
+    }
+
+    // PV memory initialization must happen after every model/interface reset.
+    // Otherwise a reset in the build/attach sequence can silently restore the
+    // memory reset value and all read data becomes zero.
+    for (uint32_t master = 0; master < test_case.num_masters; ++master) {
+        const uint64_t src_addr =
+            kDemoSrcAddr + master * kMasterAddrStride;
+        const uint32_t bytes = test_case.uops_per_master * BAND_WIDTH;
+        if (!preload_demo_data(targets, src_addr, bytes)) {
+            std::ostringstream os;
+            os << "source preload failed for master " << master;
+            failures.push_back(os.str());
+        }
     }
 
     for (uint32_t master = 0; master < test_case.num_masters; ++master) {

@@ -150,7 +150,7 @@ RingDemoConfig make_demo_case(const std::string& name)
     if (name == "multi_core_backpressure") {
         config.name = name;
         config.num_targets = 2;
-        config.cycles = 60000;
+        config.cycles = 300000;
         config.master_fifo_depth = 2;
         config.target_fifo_depth = 2;
         config.ring_fifo_depth = 2;

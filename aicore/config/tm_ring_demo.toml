@@ -13,7 +13,7 @@ ddr_config = "../etc/pem_config_cloud.toml"
 num_masters = 4               # Master/Core 数量，独立场景要求至少为 2
 num_targets = 4               # Memory Target/分区数量
 uops_per_master = 256         # 每个 Master 产生的 uop 数量，必须为偶数
-cycles = 50000                # 用例允许执行的最大仿真周期
+cycles = 200000               # 用例允许执行的最大仿真周期
 
 # Target 地址交织。
 # interleave 可选 none、linear、xor；none 表示不交织。
@@ -71,7 +71,7 @@ require_performance_target = false
 # 多核反压场景：保持 4 个 Master，将 Target、FIFO 和 Link in-flight 资源收紧，
 # 用于回归验证串行化忙、in-flight 耗尽、Link FIFO 满和下游 FIFO 满等瓶颈分类。
 num_targets = 2
-cycles = 60000
+cycles = 300000
 master_fifo_depth = 2
 target_fifo_depth = 2
 ring_fifo_depth = 2

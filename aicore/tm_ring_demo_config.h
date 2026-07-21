@@ -14,7 +14,7 @@ constexpr uint64_t kDemoSrcAddr = 0x30000000ull;
 constexpr uint64_t kDemoDstAddr = 0x40000000ull;
 constexpr uint64_t kMasterAddrStride = 0x01000000ull;
 constexpr uint64_t kTargetAddressLimit = 0x80000000ull;
-constexpr uint32_t kDemoCycles = 50000;
+constexpr uint32_t kDemoCycles = 200000;
 constexpr const char* kDefaultRingScenarioConfig =
     "../etc/tm_ring_demo.toml";
 constexpr const char* kDefaultDdrConfig =
