@@ -19,7 +19,7 @@ selected_scenario_config()
 {
     const char* value = std::getenv("TM_RING_ESL_CONFIG");
     return value == nullptr || *value == '\0'
-               ? std::string("config/tm_ring_demo.toml")
+               ? std::string(tm_ring_demo::kDefaultRingScenarioConfig)
                : std::string(value);
 }
 

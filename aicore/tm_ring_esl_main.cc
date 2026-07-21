@@ -9,7 +9,8 @@ namespace {
 
 struct Arguments
 {
-    std::string scenario_config = "config/tm_ring_demo.toml";
+    std::string scenario_config =
+        tm_ring_demo::kDefaultRingScenarioConfig;
     std::string case_name = "multi_core";
     std::string ddr_config;
     std::string output = "tm_ring_multi_core_result.txt";

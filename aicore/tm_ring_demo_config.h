@@ -15,12 +15,16 @@ constexpr uint64_t kDemoDstAddr = 0x40000000ull;
 constexpr uint64_t kMasterAddrStride = 0x01000000ull;
 constexpr uint64_t kTargetAddressLimit = 0x80000000ull;
 constexpr uint32_t kDemoCycles = 50000;
+constexpr const char* kDefaultRingScenarioConfig =
+    "../etc/tm_ring_demo.toml";
+constexpr const char* kDefaultDdrConfig =
+    "../etc/pem_config_cloud.toml";
 
 struct RingDemoConfig
 {
     std::string name = "multi_core";
     // DDR/PEM runtime TOML: DDR latency/credit and BIU runtime parameters.
-    std::string ddr_config_file = "../etc/pem_config_cloud.toml";
+    std::string ddr_config_file = kDefaultDdrConfig;
     uint32_t num_masters = 4;
     uint32_t num_targets = 4;
     uint32_t uops_per_master = 256;

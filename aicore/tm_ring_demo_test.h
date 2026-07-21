@@ -256,9 +256,32 @@ run_demo(const std::string& ddr_config_file,
     tm_init();
     auto clk = tm_make_clk();
 
+    std::ifstream ddr_config_probe(ddr_config_file);
+    if (!ddr_config_probe.is_open()) {
+        throw std::runtime_error(
+            "cannot open DDR/PEM config file: " + ddr_config_file);
+    }
+    ddr_config_probe.close();
+
     auto demo_cfg = std::make_shared<cfg::Cfg>();
     demo_cfg->read_cfg_file(ddr_config_file);
+
+    const char* required_tables[] = {"ARCH", "DDR", "L2", "BIU"};
+    for (const char* table : required_tables) {
+        if (demo_cfg->get_cfg_tab(table) == nullptr) {
+            throw std::runtime_error(
+                "DDR/PEM config is missing required [" +
+                std::string(table) + "] configuration: " +
+                ddr_config_file);
+        }
+    }
+    auto biu_cfg = demo_cfg->get_cfg_tab("BIU");
     auto ddr_cfg = tm_make_mem_cfg(std::string("ddr"), demo_cfg);
+    if (ddr_cfg == nullptr || ddr_cfg->ddr == nullptr) {
+        throw std::runtime_error(
+            "failed to construct DDR configuration from: " +
+            ddr_config_file);
+    }
 
     std::vector<p_tm_mem_t> targets;
     for (uint32_t target = 0; target < test_case.num_targets; ++target) {
@@ -287,8 +310,7 @@ run_demo(const std::string& ddr_config_file,
     std::vector<std::shared_ptr<DemoT>> demos;
     for (uint32_t master = 0; master < test_case.num_masters; ++master) {
         auto biu = std::make_shared<pem_biu_t>(
-            "biu" + std::to_string(master), clk,
-            demo_cfg->get_cfg_tab("BIU"));
+            "biu" + std::to_string(master), clk, biu_cfg);
         biu->core_id_ = master;
         biu->build();
         ring->attach_master(master, biu);

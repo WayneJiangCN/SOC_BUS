@@ -45,24 +45,6 @@ std::string unquote(const std::string& value)
     return text;
 }
 
-bool is_absolute_path(const std::string& path)
-{
-    return (!path.empty() && (path[0] == '/' || path[0] == '\\')) ||
-           (path.size() > 1 && path[1] == ':');
-}
-
-std::string relative_to_file(const std::string& file_name,
-                             const std::string& path)
-{
-    if (path.empty() || is_absolute_path(path)) {
-        return path;
-    }
-    const size_t separator = file_name.find_last_of("/\\");
-    return separator == std::string::npos
-               ? path
-               : file_name.substr(0, separator + 1) + path;
-}
-
 bool parse_u32(const std::string& text, const std::string& key,
                uint32_t* result, std::string* error)
 {
@@ -322,8 +304,6 @@ bool load_demo_config(const std::string& file_name,
         }
     }
     config->name = case_name;
-    config->ddr_config_file =
-        relative_to_file(file_name, config->ddr_config_file);
     return validate_config(*config, error);
 }
 

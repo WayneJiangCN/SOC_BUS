@@ -4,10 +4,10 @@
 # [default] 是所有多核场景的公共配置，[case.<名称>] 仅覆盖该场景的差异项。
 
 [default]
-# DDR/PEM 公共运行时 TOML。相对路径以本场景 TOML 所在目录为基准。
+# DDR/PEM 公共运行时 TOML。相对路径以测试程序运行目录为基准。
 # 该文件继续负责 DDR 读写延迟、credit 上限/补充参数及 BIU 配置；
 # 本文件不复制这些参数，只保存 Ring 拓扑、链路和场景级限制。
-ddr_config = "../../etc/pem_config_cloud.toml"
+ddr_config = "../etc/pem_config_cloud.toml"
 
 # 拓扑和负载规模：每个 Master 独立产生 uops_per_master 个操作。
 num_masters = 4               # Master/Core 数量，独立场景要求至少为 2
