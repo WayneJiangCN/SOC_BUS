@@ -257,6 +257,8 @@ TmRingLinkStallBreakdown TmRingFabric::ring_link_stall_breakdown() const {
                              rsp.inflight_limit_stall;
     stalls.link_fifo_full += req.link_fifo_full_stall +
                              rsp.link_fifo_full_stall;
+    stalls.bubble_reserved += req.bubble_reserved_stall +
+                               rsp.bubble_reserved_stall;
     stalls.downstream_fifo_full += req.downstream_inf_full_stall +
                                    rsp.downstream_inf_full_stall;
   }

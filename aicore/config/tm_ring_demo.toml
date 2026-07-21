@@ -36,7 +36,6 @@ hotspot_penalty = 0           # 热点状态附加延迟，单位：周期
 # 各级缓冲深度，单位：报文项数。
 master_fifo_depth = 16        # 每个 Master NIU 的请求/数据 FIFO 深度
 target_fifo_depth = 16        # 每个 TargetPort 的请求 FIFO 深度
-ring_fifo_depth = 8           # 每条 Link、每个 REQ/RSP 子网的传播 FIFO 深度
 
 # Outstanding（OSD）限制，单位：未完成事务数。
 # Master OSD 控制单个 Master 的并行读写事务；Global OSD 控制全局并行事务。
@@ -52,11 +51,10 @@ target_wr_osd = 16
 target_acc_osd = 32
 
 # Ring Link 参数。
-ring_link_latency = 1         # 单跳固定传播延迟，单位：周期
+ring_link_latency = 1         # 单跳固定传播延迟，同时决定 Link FIFO depth 和 max inflight
 ring_link_width_bytes = 16    # 单条 Link 每周期序列化宽度，单位：字节/周期
 ring_req_header_bytes = 16    # RD/WR 请求头占用的链路字节数
 ring_rsp_header_bytes = 16    # 无数据响应头占用的链路字节数
-ring_link_max_inflight = 8    # 单条 Link、单个子网允许的最大在途报文数
 
 # 性能检查。
 clock_ghz = 1.0               # 用于将 bytes/cycle 换算为 GB/s
@@ -74,5 +72,3 @@ num_targets = 2
 cycles = 300000
 master_fifo_depth = 2
 target_fifo_depth = 2
-ring_fifo_depth = 2
-ring_link_max_inflight = 2

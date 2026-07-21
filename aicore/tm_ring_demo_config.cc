@@ -119,14 +119,12 @@ std::string option_to_key(const std::string& option)
         {"--hotspot-penalty", "hotspot_penalty"},
         {"--link-latency", "ring_link_latency"},
         {"--link-width", "ring_link_width_bytes"},
-        {"--link-max-inflight", "ring_link_max_inflight"},
         {"--link-req-header-bytes", "ring_req_header_bytes"},
         {"--link-rsp-header-bytes", "ring_rsp_header_bytes"},
         {"--master-inf-delay", "master_inf_delay"},
         {"--target-inf-delay", "target_inf_delay"},
         {"--master-fifo-depth", "master_fifo_depth"},
         {"--target-fifo-depth", "target_fifo_depth"},
-        {"--ring-fifo-depth", "ring_fifo_depth"},
         {"--master-rd-osd", "master_rd_osd"},
         {"--master-wr-osd", "master_wr_osd"},
         {"--global-osd", "global_osd"},
@@ -153,8 +151,6 @@ RingDemoConfig make_demo_case(const std::string& name)
         config.cycles = 300000;
         config.master_fifo_depth = 2;
         config.target_fifo_depth = 2;
-        config.ring_fifo_depth = 2;
-        config.ring_link_max_inflight = 2;
         return config;
     }
     throw std::invalid_argument("unknown multi-core ring demo case: " + name);
@@ -223,7 +219,6 @@ bool apply_demo_value(const std::string& raw_key, const std::string& raw_value,
     else if (key == "hotspot_penalty") field = &config->hotspot_penalty;
     else if (key == "master_fifo_depth") field = &config->master_fifo_depth;
     else if (key == "target_fifo_depth") field = &config->target_fifo_depth;
-    else if (key == "ring_fifo_depth") field = &config->ring_fifo_depth;
     else if (key == "master_inf_delay") field = &config->master_inf_delay;
     else if (key == "target_inf_delay") field = &config->target_inf_delay;
     else if (key == "master_rd_osd") field = &config->master_rd_osd;
@@ -236,7 +231,6 @@ bool apply_demo_value(const std::string& raw_key, const std::string& raw_value,
     else if (key == "ring_link_width_bytes") field = &config->ring_link_width_bytes;
     else if (key == "ring_req_header_bytes") field = &config->ring_req_header_bytes;
     else if (key == "ring_rsp_header_bytes") field = &config->ring_rsp_header_bytes;
-    else if (key == "ring_link_max_inflight") field = &config->ring_link_max_inflight;
     else {
         *error = "unknown configuration key: " + key;
         return false;
@@ -365,12 +359,12 @@ bool validate_config(const RingDemoConfig& config, std::string* error)
     }
     if (config.interleave_size == 0 || config.target_width_bytes == 0 ||
         config.ring_link_width_bytes == 0 || config.master_fifo_depth == 0 ||
-        config.target_fifo_depth == 0 || config.ring_fifo_depth == 0 ||
-        config.ring_link_max_inflight == 0 || config.master_rd_osd == 0 ||
+        config.target_fifo_depth == 0 || config.ring_link_latency == 0 ||
+        config.master_rd_osd == 0 ||
         config.master_wr_osd == 0 || config.global_osd == 0 ||
         config.target_rd_osd == 0 || config.target_wr_osd == 0 ||
         config.target_acc_osd == 0) {
-        *error = "width, FIFO, link in-flight and all OSD values must be non-zero";
+        *error = "width, FIFO, link latency and all OSD values must be non-zero";
         return false;
     }
     if (config.master_inf_delay == std::numeric_limits<uint32_t>::max() ||

@@ -199,9 +199,7 @@ Core / BIU
 
 ### 10.3 router/link 参数
 
-- `ring_req_fifo_depth`
-- `ring_rsp_fifo_depth`
-- `ring_link_latency`
+- `ring_link_latency`：单跳传播延迟，同时决定 Link FIFO depth 和 max inflight。
 
 ### 10.4 target 参数
 

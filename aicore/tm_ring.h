@@ -41,12 +41,13 @@ struct TmRingLinkStallBreakdown
     uint64_t serialization_busy = 0;
     uint64_t inflight_limit = 0;
     uint64_t link_fifo_full = 0;
+    uint64_t bubble_reserved = 0;
     uint64_t downstream_fifo_full = 0;
 
     uint64_t total() const
     {
         return serialization_busy + inflight_limit + link_fifo_full +
-               downstream_fifo_full;
+               bubble_reserved + downstream_fifo_full;
     }
 };
 

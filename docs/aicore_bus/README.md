@@ -31,9 +31,11 @@ BIU / API
    再看 `TmRingFabric` 如何创建和连接整张网络。
 6. [port_based_router_design.md](./port_based_router_design.md)
    继续看 Router/Link 的端口化设计。
-7. [arbitration.md](./arbitration.md)
+7. [ring_link_model_and_improvements.md](./ring_link_model_and_improvements.md)
+   单独看 Link 的传播延迟、序列化、capacity、反压和后续改进。
+8. [arbitration.md](./arbitration.md)
    如果关心多输入竞争同一输出口，重点看仲裁。
-8. [performance_and_alignment.md](./performance_and_alignment.md)
+9. [performance_and_alignment.md](./performance_and_alignment.md)
    如果关心性能趋势、瓶颈和真实硬件对齐，重点看这页。
 
 ## 术语

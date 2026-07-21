@@ -89,8 +89,6 @@ struct TmBusCfg
     uint32_t master_wr_dat_fifo_depth = 8;
     uint32_t master_wr_grant_fifo_depth = 8;
 
-    uint32_t ring_req_fifo_depth = 4;
-    uint32_t ring_rsp_fifo_depth = 4;
     uint32_t ring_link_latency = 1;
 
     bool strict_wr_grant_order = true;

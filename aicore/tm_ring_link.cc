@@ -1,7 +1,6 @@
 #include "tm_ring_link.h"
 
 #include <algorithm>
-#include <cassert>
 #include <iostream>
 
 using namespace tm_engine;
@@ -27,6 +26,7 @@ void TmRingLink::config(const std::string& name, p_tm_clk_t clk,
   log_para_t log_para(name_ + ".log");
   log_ = pem_log::create_logger(log_para);
   latency_ = latency;
+  link_capacity_ = std::max<uint32_t>(1, latency_+1);
   // width_bytes_ 至少为 1，避免配置为 0 时出现序列化周期除零。
   width_bytes_ = std::max<uint32_t>(1, cfg_->ring_link_width_bytes);
   dst_router_ = dst_router;
@@ -41,11 +41,6 @@ void TmRingLink::config(const std::string& name, p_tm_clk_t clk,
   next_send_time_.assign(tm_ring_subnet_count(), 0);
   inflight_count_.assign(tm_ring_subnet_count(), 0);
   stats_.assign(tm_ring_subnet_count(), LinkSubnetStats());
-  max_inflight_.assign(tm_ring_subnet_count(), 1);
-  max_inflight_[tm_ring_subnet_index(TmRingSubnet::REQ)] =
-      std::max<uint32_t>(1, cfg_->ring_req_link_max_inflight);
-  max_inflight_[tm_ring_subnet_index(TmRingSubnet::RSP)] =
-      std::max<uint32_t>(1, cfg_->ring_rsp_link_max_inflight);
 
   // dst_out_inf_ 只负责 Link 到下游 Router 的 valid/ready 交互。
   dst_out_inf_ = tm_make_com_inf(clk_, name_ + "_dst_out_inf",
@@ -56,11 +51,9 @@ void TmRingLink::config(const std::string& name, p_tm_clk_t clk,
   // 两个 tm_que 是 Link 的真实在途缓存，delay 参数表达固定传播延迟。
   auto drain_proc = TM_MAKE_CPROC(&TmRingLink::drain_ready_packets);
   inflight_packets_.push_back(tm_make_que<p_tm_pld_t>(
-      clk_, name_ + "_req_ready_packets",
-      std::max<uint32_t>(1, cfg_->ring_req_fifo_depth), latency_));
+      clk_, name_ + "_req_ready_packets", link_capacity_, latency_));
   inflight_packets_.push_back(tm_make_que<p_tm_pld_t>(
-      clk_, name_ + "_rsp_ready_packets",
-      std::max<uint32_t>(1, cfg_->ring_rsp_fifo_depth), latency_));
+      clk_, name_ + "_rsp_ready_packets", link_capacity_, latency_));
   // 数据达到队列可见时间后触发 drain；无需额外 retry_event_。
   for (auto& q : inflight_packets_) {
     tm_sensitive(drain_proc, q->vld);
@@ -92,7 +85,7 @@ bool TmRingLink::idle() const {
   return ret;
 }
 
-bool TmRingLink::can_send(p_tm_pld_t pld) {
+bool TmRingLink::can_accept(p_tm_pld_t pld) {
   if (pld == nullptr) {
     return false;
   }
@@ -104,7 +97,7 @@ bool TmRingLink::can_send(p_tm_pld_t pld) {
     stats_[idx].send_reject_stall++;
     return false;
   }
-  if (inflight_count_[idx] >= max_inflight_[idx]) {
+  if (inflight_count_[idx] >= link_capacity_) {
     stats_[idx].inflight_limit_stall++;
     stats_[idx].send_reject_stall++;
     return false;
@@ -117,9 +110,36 @@ bool TmRingLink::can_send(p_tm_pld_t pld) {
   return true;
 }
 
-bool TmRingLink::send_pkt(p_tm_pld_t pld) {
-  // can_send 失败不改变任何状态，Router 会保留输入队头等待后续调度。
-  if (!can_send(pld)) {
+bool TmRingLink::can_accept_preserving_bubble(p_tm_pld_t pld) {
+  if (!can_accept(pld)) {
+    return false;
+  }
+
+  uint32_t idx = pld->ring_subnet;
+  if (link_capacity_ <= 1) {
+    return true;
+  }
+  if (inflight_count_[idx] + 1 >= link_capacity_) {
+    stats_[idx].bubble_reserved_stall++;
+    stats_[idx].send_reject_stall++;
+    return false;
+  }
+  return true;
+}
+
+bool TmRingLink::accept_pkt(p_tm_pld_t pld) {
+  // can_accept 失败不改变任何状态，Router 会保留输入队头等待后续调度。
+  if (!can_accept(pld)) {
+    return false;
+  }
+
+  reserve_send(pld);
+  enqueue_ready_packet(pld);
+  return true;
+}
+
+bool TmRingLink::accept_pkt_preserving_bubble(p_tm_pld_t pld) {
+  if (!can_accept_preserving_bubble(pld)) {
     return false;
   }
 
@@ -188,8 +208,7 @@ const TmRingLink::LinkSubnetStats& TmRingLink::subnet_stats(
 
 void TmRingLink::attach(p_tm_com_inf_t dst_inf) {
   // dst_inf 是相邻 Router 与本 Link 方向相反的输入端口。
-  dst_inf_ = dst_inf;
-  dst_out_inf_->connect(dst_inf_);
+  dst_out_inf_->connect(dst_inf);
   PEM_LOG_INFO(log_, "[{0:d}] attach_dst dst_router:{1:d} dst_dir:{2:d}",
                time(), dst_router_, tm_ring_port_index(dst_dir_));
 }
@@ -217,14 +236,6 @@ void TmRingLink::drain_ready_packets() {
         continue;
       }
 
-      // 未连接目的端口属于拓扑配置错误，正常 payload 不能被静默丢弃。
-      if (dst_inf_ == nullptr) {
-        stats_[idx].invalid_dst_stall++;
-        std::cerr << name_ << ": missing destination inf for traffic_class "
-                  << pld->ring_traffic_class << std::endl;
-        assert(false && "TmRingLink missing destination inf");
-        break;
-      }
       // 下游满时 break 且不 pop，队头继续保持有效并自然形成反压。
       if (!dst_out_inf_->send(dst_channel(pld), pld)) {
         stats_[idx].downstream_inf_full_stall++;

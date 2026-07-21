@@ -148,11 +148,7 @@ struct TmRingCfg {
   // 全局事务 outstanding 上限，当前保留给后续全局 OSD 统计/限制使用。
   uint32_t global_osd = 128;
 
-  // Link 内部 request subnet in-flight FIFO 深度，是真正链路缓存资源。
-  uint32_t ring_req_fifo_depth = 4;
-  // Link 内部 response subnet in-flight FIFO 深度，是真正链路缓存资源。
-  uint32_t ring_rsp_fifo_depth = 4;
-  // Ring 每跳固定传播延迟，由 Link 内部 tm_que delay 表达。
+  // Ring 每跳固定传播延迟，由 Link 内部 tm_que delay 表达，并作为 Link capacity。
   uint32_t ring_link_latency = 1;
   // Link 每周期可序列化发送的字节数。
   uint32_t ring_link_width_bytes = 16;
@@ -160,10 +156,6 @@ struct TmRingCfg {
   uint32_t ring_req_header_bytes = 16;
   // WR_RSP/RSP 响应头大小，用于计算响应包序列化周期。
   uint32_t ring_rsp_header_bytes = 16;
-  // Request subnet 每条 Link 最大在途 packet 数。
-  uint32_t ring_req_link_max_inflight = 8;
-  // Response subnet 每条 Link 最大在途 packet 数。
-  uint32_t ring_rsp_link_max_inflight = 8;
   // Target 配置，包括地址空间、interleave、credit、token 和 target 本地 FIFO。
   std::vector<p_tm_ring_target_cfg_t> targets;
 };

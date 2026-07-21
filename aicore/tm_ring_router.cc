@@ -289,7 +289,13 @@ bool TmRingRouter::route_ready(p_tm_ring_candidate_t candidate) {
   }
 
   auto link = output_link(out_dir);
-  return link != nullptr && link->can_send(candidate->pld);
+  if (link == nullptr) {
+    return false;
+  }
+  if (candidate->in_dir == TmRingPortDir::LOCAL) {
+    return link->can_accept_preserving_bubble(candidate->pld);
+  }
+  return link->can_accept(candidate->pld);
 }
 
 bool TmRingRouter::route_packet(p_tm_ring_candidate_t candidate) {
@@ -301,7 +307,13 @@ bool TmRingRouter::route_packet(p_tm_ring_candidate_t candidate) {
   }
 
   auto link = output_link(out_dir);
-  return link != nullptr && link->send_pkt(pld);
+  if (link == nullptr) {
+    return false;
+  }
+  if (candidate->in_dir == TmRingPortDir::LOCAL) {
+    return link->accept_pkt_preserving_bubble(pld);
+  }
+  return link->accept_pkt(pld);
 }
 
 bool TmRingRouter::local_ready(p_tm_pld_t pld) {

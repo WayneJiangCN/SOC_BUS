@@ -47,7 +47,6 @@ struct RingDemoConfig
 
     uint32_t master_fifo_depth = 16;
     uint32_t target_fifo_depth = 16;
-    uint32_t ring_fifo_depth = 8;
     uint32_t master_inf_delay = 1;
     uint32_t target_inf_delay = 1;
 
@@ -63,7 +62,6 @@ struct RingDemoConfig
     uint32_t ring_link_width_bytes = 16;
     uint32_t ring_req_header_bytes = 16;
     uint32_t ring_rsp_header_bytes = 16;
-    uint32_t ring_link_max_inflight = 8;
 
     double performance_target_pct = 80.0;
     double clock_ghz = 1.0;

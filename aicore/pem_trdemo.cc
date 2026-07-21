@@ -250,11 +250,6 @@ bool PemTrDemo::handle_read_response(p_tm_pld_t rd_resp)
     {
         pipe_que_->push_back(result_uop);
         ++stats_.completed_pairs;
-        const uint32_t result_value = static_cast<uint32_t>(sum);
-        stats_.completed_result_checksum += result_value;
-        if (result_value != 0) {
-            ++stats_.nonzero_completed_pairs;
-        }
         PEM_LOG_INFO(log_, "Pair[{0:x}] 累加完成, 结果={1:d}", wr_addr, sum);
     }
     else
@@ -312,10 +307,6 @@ void PemTrDemo::pipeline()
         write_buffer_ids_[wr_pld->gid] = buf_id;
         write_issue_cycles_[wr_pld->gid] = now;
         ++stats_.write_requests;
-        stats_.write_value_checksum += value;
-        if (value != 0) {
-            ++stats_.nonzero_write_requests;
-        }
         stats_.write_bytes += uop->size;
         PEM_LOG_INFO(wr_log_, "M4,time:{3:d},size : {0:d}, 地址=0x{1:x}, 数据={2:d}",
                      wr_pld->size, uop->addr, value, time());

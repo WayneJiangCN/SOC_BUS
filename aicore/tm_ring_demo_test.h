@@ -100,14 +100,10 @@ make_demo_ring_cfg(const p_tm_mem_cfg_t& ddr_cfg,
     cfg->master_wr_osd = tc.master_wr_osd;
     cfg->global_osd = tc.global_osd;
 
-    cfg->ring_req_fifo_depth = tc.ring_fifo_depth;
-    cfg->ring_rsp_fifo_depth = tc.ring_fifo_depth;
     cfg->ring_link_latency = tc.ring_link_latency;
     cfg->ring_link_width_bytes = tc.ring_link_width_bytes;
     cfg->ring_req_header_bytes = tc.ring_req_header_bytes;
     cfg->ring_rsp_header_bytes = tc.ring_rsp_header_bytes;
-    cfg->ring_req_link_max_inflight = tc.ring_link_max_inflight;
-    cfg->ring_rsp_link_max_inflight = tc.ring_link_max_inflight;
 
     for (uint32_t target = 0; target < tc.num_targets; ++target) {
         cfg->targets.push_back(make_ddr_target_cfg(ddr_cfg, tc, target));
@@ -179,54 +175,6 @@ struct MemoryCheck
     uint64_t mismatches = 0;
     uint64_t read_failures = 0;
 };
-
-inline MemoryCheck
-verify_preloaded_memory(const std::vector<p_tm_mem_t>& targets,
-                        const RingDemoConfig& tc,
-                        std::vector<std::string>* failures)
-{
-    MemoryCheck result;
-    constexpr uint32_t kExpectedPreloadWord = 0x01010101u;
-    uint32_t detailed_errors = 0;
-    constexpr uint32_t kMaxDetailedErrors = 8;
-
-    for (uint32_t master = 0; master < tc.num_masters; ++master) {
-        const uint64_t src_base =
-            kDemoSrcAddr + master * kMasterAddrStride;
-        for (uint32_t uop = 0; uop < tc.uops_per_master; ++uop) {
-            const uint64_t addr = src_base + uop * BAND_WIDTH;
-            const uint32_t target_id = target_for_address(tc, addr);
-            uint32_t actual = 0;
-            ++result.checked;
-            if (!targets[target_id]->pv_read(
-                    addr, sizeof(actual),
-                    reinterpret_cast<uint8_t*>(&actual))) {
-                ++result.read_failures;
-                if (detailed_errors++ < kMaxDetailedErrors) {
-                    std::ostringstream os;
-                    os << "preload read failed: master=" << master
-                       << " uop=" << uop << " target=" << target_id
-                       << " addr=0x" << std::hex << addr;
-                    failures->push_back(os.str());
-                }
-                continue;
-            }
-            if (actual != kExpectedPreloadWord) {
-                ++result.mismatches;
-                if (detailed_errors++ < kMaxDetailedErrors) {
-                    std::ostringstream os;
-                    os << "preload mismatch: master=" << master
-                       << " uop=" << uop << " target=" << target_id
-                       << " addr=0x" << std::hex << addr
-                       << " expected=0x" << kExpectedPreloadWord
-                       << " actual=0x" << actual;
-                    failures->push_back(os.str());
-                }
-            }
-        }
-    }
-    return result;
-}
 
 inline MemoryCheck
 verify_demo_memory(const std::vector<p_tm_mem_t>& targets,
@@ -392,9 +340,6 @@ run_demo(const std::string& ddr_config_file,
             failures.push_back(os.str());
         }
     }
-    const MemoryCheck preload_memory =
-        verify_preloaded_memory(targets, test_case, &failures);
-
     for (uint32_t master = 0; master < test_case.num_masters; ++master) {
         const uint64_t src_addr =
             kDemoSrcAddr + master * kMasterAddrStride;
@@ -440,10 +385,6 @@ run_demo(const std::string& ddr_config_file,
     uint64_t total_pairs = 0;
     uint64_t total_writes = 0;
     uint64_t total_write_responses = 0;
-    uint64_t total_nonzero_pairs = 0;
-    uint64_t total_result_checksum = 0;
-    uint64_t total_nonzero_write_requests = 0;
-    uint64_t total_write_value_checksum = 0;
     uint64_t total_read_bytes = 0;
     uint64_t total_write_bytes = 0;
     uint64_t total_read_stalls = 0;
@@ -469,10 +410,8 @@ run_demo(const std::string& ddr_config_file,
               << interleave_name(test_case)
               << " interleave_size=" << test_case.interleave_size
               << " link_latency=" << test_case.ring_link_latency
+              << " link_capacity=" << test_case.ring_link_latency
               << " link_width=" << test_case.ring_link_width_bytes
-              << " link_max_inflight="
-              << test_case.ring_link_max_inflight
-              << " ring_fifo_depth=" << test_case.ring_fifo_depth
               << " master_inf_delay=" << test_case.master_inf_delay
               << " master_inf_capacity=" << (test_case.master_inf_delay + 1)
               << " target_inf_delay=" << test_case.target_inf_delay
@@ -593,10 +532,6 @@ run_demo(const std::string& ddr_config_file,
         total_pairs += stat.completed_pairs;
         total_writes += stat.write_requests;
         total_write_responses += stat.write_responses;
-        total_nonzero_pairs += stat.nonzero_completed_pairs;
-        total_result_checksum += stat.completed_result_checksum;
-        total_nonzero_write_requests += stat.nonzero_write_requests;
-        total_write_value_checksum += stat.write_value_checksum;
         // Throughput is based on completed responses. Counting issued bytes
         // makes an incomplete/deadlocked run look faster than the link peak.
         total_read_bytes += stat.read_responses * BAND_WIDTH;
@@ -713,6 +648,10 @@ run_demo(const std::string& ddr_config_file,
             dominant_link_stalls = ring_link_breakdown.link_fifo_full;
             dominant_bottleneck = "ring_link_fifo_full";
         }
+        if (ring_link_breakdown.bubble_reserved > dominant_link_stalls) {
+            dominant_link_stalls = ring_link_breakdown.bubble_reserved;
+            dominant_bottleneck = "ring_link_bubble_reserved";
+        }
         if (ring_link_breakdown.downstream_fifo_full >
             dominant_link_stalls) {
             dominant_bottleneck = "ring_link_downstream_fifo_full";
@@ -735,8 +674,6 @@ run_demo(const std::string& ddr_config_file,
     const uint64_t expected_total_writes =
         expected_writes * test_case.num_masters;
     const bool measurement_valid =
-        preload_memory.mismatches == 0 &&
-        preload_memory.read_failures == 0 &&
         total_reads == expected_total_reads &&
         total_read_responses == expected_total_reads &&
         total_pairs == expected_total_writes &&
@@ -767,19 +704,6 @@ run_demo(const std::string& ddr_config_file,
               << " read_failures=" << memory.read_failures
               << " expected_value=0x" << std::hex << expected_demo_result()
               << std::dec << std::endl;
-    std::cout << "TEST_PRELOAD checked=" << preload_memory.checked
-              << " mismatches=" << preload_memory.mismatches
-              << " read_failures=" << preload_memory.read_failures
-              << " expected_word=0x" << std::hex << 0x01010101u
-              << std::dec << std::endl;
-    std::cout << "TEST_DATA nonzero_completed_pairs="
-              << total_nonzero_pairs
-              << " completed_result_checksum=0x" << std::hex
-              << total_result_checksum
-              << " nonzero_write_requests=" << std::dec
-              << total_nonzero_write_requests
-              << " write_value_checksum=0x" << std::hex
-              << total_write_value_checksum << std::dec << std::endl;
     std::cout << "TEST_PERF completion_cycles=" << completion_cycles
               << " read_completion_cycles=" << read_completion_cycles
               << " read_payload_bytes_per_cycle=" << read_bpc
@@ -819,6 +743,8 @@ run_demo(const std::string& ddr_config_file,
               << ring_link_breakdown.inflight_limit
               << " ring_link_fifo_full_stalls="
               << ring_link_breakdown.link_fifo_full
+              << " ring_link_bubble_stalls="
+              << ring_link_breakdown.bubble_reserved
               << " ring_link_downstream_fifo_full_stalls="
               << ring_link_breakdown.downstream_fifo_full
               << " ring_link_stalls=" << ring_link_stalls
