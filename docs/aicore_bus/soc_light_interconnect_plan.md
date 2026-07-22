@@ -183,26 +183,57 @@ Core / BIU
 
 ## 10. 推荐参数面
 
-### 10.1 拓扑参数
+配置面建议分两层：Demo 场景层只保留常用性能旋钮，Target/DDR 细节继续使用底层 Target 配置和 DDR TOML 默认值，避免同一个参数在多层重复覆盖。
+
+### 10.1 Demo 场景参数
 
 - `num_masters`
 - `num_targets`
+- `uops_per_master`
+- `cycles`
+- `interleave`
+- `interleave_size`
+- `interleave_hash_shift`
+- `interleave_hash_seed`
+- `target_width_bytes`
+- `master_fifo_depth`
+- `target_fifo_depth`
+- `master_rd_osd`
+- `master_wr_osd`
+- `global_osd`
+- `target_rd_osd`
+- `target_wr_osd`
+- `target_acc_osd`
+- `ring_link_latency`
+- `ring_link_width_bytes`
+- `ring_router_input_depth`
 
-### 10.2 endpoint 参数
+### 10.2 Ring 核心参数
 
-- `master_inf_delay`（创建 TmInf 时容量为 `delay + 1`）
-- `target_inf_delay`（创建 TmInf 时容量为 `delay + 1`）
-- `master_rd_req_fifo_depth`
-- `master_wr_req_fifo_depth`
+- `rd_rsp_port_num`
+- `master_rd_cmd_fifo_depth`
+- `master_wr_cmd_fifo_depth`
 - `master_wr_dat_fifo_depth`
-- `master_wr_grant_fifo_depth`
+- `master_wr_rsp_fifo_depth`
+- `master_rd_osd`
+- `master_wr_osd`
+- `global_osd`
+- `ring_link_latency`
+- `ring_link_width_bytes`
+- `ring_router_input_depth`
+- `targets`
 
-### 10.3 router/link 参数
+`TmInf` 端口只作为 valid/ready 事件边界，内部使用固定容量，不再暴露 `master_inf_delay` 或 `target_inf_delay`。请求头和无数据响应头当前按模型内部固定 16B 计算，不作为常规配置项。
 
-- `ring_link_latency`：单跳传播延迟，同时决定 Link FIFO depth 和 max inflight。
+### 10.3 Target/DDR 细节参数
 
-### 10.4 target 参数
+Target 细节参数仍保留在 `TmBusTargetCfg` 和 DDR TOML 中，包括：
 
+- `frontend_latency`
+- `forward_latency`
+- `response_latency`
+- `header_latency`
+- `width`
 - `rd_slot_credit_max`
 - `wr_slot_credit_max`
 - `acc_slot_credit_max`
@@ -210,10 +241,6 @@ Core / BIU
 - `wr_bw_token_max`
 - `acc_bw_token_max`
 - `token_update_period`
-- `frontend_latency`
-- `forward_latency`
-- `response_latency`
-- `width`
 - `hotspot_threshold`
 - `hotspot_penalty`
 

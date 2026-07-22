@@ -52,13 +52,7 @@ make_ddr_target_cfg(const p_tm_mem_cfg_t& ddr_cfg,
         target->interleave_hash_seed = tc.interleave_hash_seed;
     }
 
-    target->frontend_latency = tc.target_frontend_latency;
-    target->forward_latency = tc.target_forward_latency;
-    target->response_latency = tc.target_response_latency;
-    target->header_latency = tc.target_header_latency;
     target->width = tc.target_width_bytes;
-    target->hotspot_threshold = tc.hotspot_threshold;
-    target->hotspot_penalty = tc.hotspot_penalty;
     target->rd_req_fifo_depth = tc.target_fifo_depth;
     target->wr_req_fifo_depth = tc.target_fifo_depth;
     target->wr_dat_fifo_depth = tc.target_fifo_depth;
@@ -89,8 +83,6 @@ make_demo_ring_cfg(const p_tm_mem_cfg_t& ddr_cfg,
     cfg->num_masters = tc.num_masters;
     cfg->num_targets = tc.num_targets;
     cfg->rd_rsp_port_num = 2;
-    cfg->master_inf_delay = tc.master_inf_delay;
-    cfg->target_inf_delay = tc.target_inf_delay;
 
     cfg->master_rd_cmd_fifo_depth = tc.master_fifo_depth;
     cfg->master_wr_cmd_fifo_depth = tc.master_fifo_depth;
@@ -102,8 +94,7 @@ make_demo_ring_cfg(const p_tm_mem_cfg_t& ddr_cfg,
 
     cfg->ring_link_latency = tc.ring_link_latency;
     cfg->ring_link_width_bytes = tc.ring_link_width_bytes;
-    cfg->ring_req_header_bytes = tc.ring_req_header_bytes;
-    cfg->ring_rsp_header_bytes = tc.ring_rsp_header_bytes;
+    cfg->ring_router_input_depth = tc.ring_router_input_depth;
 
     for (uint32_t target = 0; target < tc.num_targets; ++target) {
         cfg->targets.push_back(make_ddr_target_cfg(ddr_cfg, tc, target));
@@ -410,18 +401,15 @@ run_demo(const std::string& ddr_config_file,
               << interleave_name(test_case)
               << " interleave_size=" << test_case.interleave_size
               << " link_latency=" << test_case.ring_link_latency
-              << " link_capacity=" << test_case.ring_link_latency
+              << " link_capacity=" << (test_case.ring_link_latency + 1)
               << " link_width=" << test_case.ring_link_width_bytes
-              << " master_inf_delay=" << test_case.master_inf_delay
-              << " master_inf_capacity=" << (test_case.master_inf_delay + 1)
-              << " target_inf_delay=" << test_case.target_inf_delay
-              << " target_inf_capacity=" << (test_case.target_inf_delay + 1)
+              << " router_input_depth=" << test_case.ring_router_input_depth
               << " target_width=" << test_case.target_width_bytes
               << " target_latency="
-              << (test_case.target_frontend_latency +
-                  test_case.target_forward_latency +
-                  test_case.target_response_latency +
-                  test_case.target_header_latency)
+              << (ring_cfg->targets[0]->frontend_latency +
+                  ring_cfg->targets[0]->forward_latency +
+                  ring_cfg->targets[0]->response_latency +
+                  ring_cfg->targets[0]->header_latency)
               << " ddr_read_latency=" << ddr_cfg->ddr->min_rd_lat
               << " ddr_write_latency=" << ddr_cfg->ddr->min_wr_lat
               << " master_rd_osd=" << test_case.master_rd_osd
@@ -436,8 +424,9 @@ run_demo(const std::string& ddr_config_file,
               << " target_acc_osd="
               << configured_or(test_case.target_acc_osd,
                                ddr_cfg->ddr->max_acc_crdt)
-              << " hotspot_threshold=" << test_case.hotspot_threshold
-              << " hotspot_penalty=" << test_case.hotspot_penalty
+              << " hotspot_threshold="
+              << ring_cfg->targets[0]->hotspot_threshold
+              << " hotspot_penalty=" << ring_cfg->targets[0]->hotspot_penalty
               << std::endl;
 
     for (uint32_t master = 0; master < test_case.num_masters; ++master) {

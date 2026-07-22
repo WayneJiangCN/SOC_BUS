@@ -76,22 +76,7 @@ using p_tm_bus_target_cfg_t = std::shared_ptr<tm_bus_target_cfg_t>;
 struct TmBusCfg
 {
     std::string name = "";
-    uint32_t num_masters = 1;
     uint32_t num_targets = 1;
-    uint32_t rd_rsp_port_num = 2;
-
-    // TmInf capacity is derived as delay + 1 when the endpoint is created.
-    uint32_t master_inf_delay = 3;
-    uint32_t target_inf_delay = 3;
-
-    uint32_t master_rd_req_fifo_depth = 4;
-    uint32_t master_wr_req_fifo_depth = 4;
-    uint32_t master_wr_dat_fifo_depth = 8;
-    uint32_t master_wr_grant_fifo_depth = 8;
-
-    uint32_t ring_link_latency = 1;
-
-    bool strict_wr_grant_order = true;
     uint32_t global_osd = 128;
 
     std::vector<p_tm_bus_target_cfg_t> targets;

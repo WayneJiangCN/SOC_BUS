@@ -44,6 +44,8 @@ void TmRingRouter::config(const std::string& name, p_tm_clk_t clk,
   PEM_LOG_INFO(log_, "[{0:d}] config", time());
 
   port_infs_.clear();
+  req_input_qs_.clear();
+  rsp_input_qs_.clear();
   local_master_infs_.clear();
   local_target_infs_.clear();
   // RR 初值放在最后一个 slot，使首次扫描从 slot0 开始。
@@ -60,20 +62,43 @@ void TmRingRouter::config(const std::string& name, p_tm_clk_t clk,
     auto inf = tm_make_com_inf(
         clk_, name_ + "_port_inf_" +
                   std::to_string(tm_ring_port_index(dir)),
-        cfg_->master_inf_delay + 1);
+        tm_ring_inf_depth());
     inf->set_chan_num(chan_num);
     port_infs_.push_back(inf);
+
+    req_input_qs_.push_back(tm_make_com_que(
+        clk_, name_ + "_req_input_q_" +
+                  std::to_string(tm_ring_port_index(dir)),
+        cfg_->ring_router_input_depth));
+    rsp_input_qs_.push_back(tm_make_com_que(
+        clk_, name_ + "_rsp_input_q_" +
+                  std::to_string(tm_ring_port_index(dir)),
+        cfg_->ring_router_input_depth));
   }
 
-  // 一个方向的 vld 同时可能来自 REQ 或 RSP 通道，各回调只扫描所属子网。
+  // Link 到站后先进入 Router 输入缓存，避免 Link in-flight 长时间被占住。
+  tm_sensitive(TM_MAKE_CPROC(&TmRingRouter::recv_east_input),
+               port_infs_[ring_port_slot(TmRingPortDir::EAST)]->vld);
+  tm_sensitive(TM_MAKE_CPROC(&TmRingRouter::recv_west_input),
+               port_infs_[ring_port_slot(TmRingPortDir::WEST)]->vld);
+  tm_sensitive(TM_MAKE_CPROC(&TmRingRouter::recv_east_input),
+               req_input_qs_[ring_port_slot(TmRingPortDir::EAST)]->rdy);
+  tm_sensitive(TM_MAKE_CPROC(&TmRingRouter::recv_east_input),
+               rsp_input_qs_[ring_port_slot(TmRingPortDir::EAST)]->rdy);
+  tm_sensitive(TM_MAKE_CPROC(&TmRingRouter::recv_west_input),
+               req_input_qs_[ring_port_slot(TmRingPortDir::WEST)]->rdy);
+  tm_sensitive(TM_MAKE_CPROC(&TmRingRouter::recv_west_input),
+               rsp_input_qs_[ring_port_slot(TmRingPortDir::WEST)]->rdy);
+
+  // 输入缓存有效后再触发对应方向和子网的仲裁。
   tm_sensitive(TM_MAKE_CPROC(&TmRingRouter::route_east_request),
-               port_infs_[ring_port_slot(TmRingPortDir::EAST)]->vld);
+               req_input_qs_[ring_port_slot(TmRingPortDir::EAST)]->vld);
   tm_sensitive(TM_MAKE_CPROC(&TmRingRouter::route_east_response),
-               port_infs_[ring_port_slot(TmRingPortDir::EAST)]->vld);
+               rsp_input_qs_[ring_port_slot(TmRingPortDir::EAST)]->vld);
   tm_sensitive(TM_MAKE_CPROC(&TmRingRouter::route_west_request),
-               port_infs_[ring_port_slot(TmRingPortDir::WEST)]->vld);
+               req_input_qs_[ring_port_slot(TmRingPortDir::WEST)]->vld);
   tm_sensitive(TM_MAKE_CPROC(&TmRingRouter::route_west_response),
-               port_infs_[ring_port_slot(TmRingPortDir::WEST)]->vld);
+               rsp_input_qs_[ring_port_slot(TmRingPortDir::WEST)]->vld);
 
   reset();
 }
@@ -82,6 +107,12 @@ void TmRingRouter::reset() {
   // 清空端口握手状态，防止 reset 前的在途 payload 在 reset 后继续转发。
   for (auto& inf : port_infs_) {
     inf->reset();
+  }
+  for (auto& q : req_input_qs_) {
+    q->clear();
+  }
+  for (auto& q : rsp_input_qs_) {
+    q->clear();
   }
   for (auto& inf : local_master_infs_) {
     if (inf != nullptr) {
@@ -106,6 +137,12 @@ bool TmRingRouter::idle() const {
   bool ret = true;
   for (const auto& inf : port_infs_) {
     ret = ret && inf->idle();
+  }
+  for (const auto& q : req_input_qs_) {
+    ret = ret && q->empty();
+  }
+  for (const auto& q : rsp_input_qs_) {
+    ret = ret && q->empty();
   }
   for (const auto& inf : local_master_infs_) {
     ret = ret && (inf == nullptr || inf->idle());
@@ -144,7 +181,7 @@ void TmRingRouter::bind_local_master(uint32_t master_port,
   if (local_master_infs_[master_port] == nullptr) {
     local_master_infs_[master_port] = tm_make_com_inf(
         clk_, name_ + "_local_master_inf_" + std::to_string(master_port),
-        cfg_->master_inf_delay + 1);
+        tm_ring_inf_depth());
     local_master_infs_[master_port]->set_chan_num(
         tm_ring_packet_channel_count(cfg_->rd_rsp_port_num));
     // LOCAL Master 只注入请求，因此其 vld 绑定请求子网处理函数。
@@ -165,7 +202,7 @@ void TmRingRouter::bind_local_target(uint32_t target_id,
   if (local_target_infs_[target_id] == nullptr) {
     local_target_infs_[target_id] = tm_make_com_inf(
         clk_, name_ + "_local_target_inf_" + std::to_string(target_id),
-        cfg_->target_inf_delay + 1);
+        tm_ring_inf_depth());
     local_target_infs_[target_id]->set_chan_num(
         tm_ring_packet_channel_count(cfg_->rd_rsp_port_num));
     // LOCAL Target 只向 Ring 注入响应，因此其 vld 绑定响应子网处理函数。
@@ -201,6 +238,57 @@ void TmRingRouter::route_west_response() {
   advance_west_input(TmRingSubnet::RSP);
 }
 
+void TmRingRouter::recv_east_input() {
+  recv_port_input(TmRingPortDir::EAST);
+}
+
+void TmRingRouter::recv_west_input() {
+  recv_port_input(TmRingPortDir::WEST);
+}
+
+void TmRingRouter::recv_port_input(TmRingPortDir in_dir) {
+  recv_port_subnet(in_dir, TmRingSubnet::REQ);
+  recv_port_subnet(in_dir, TmRingSubnet::RSP);
+}
+
+void TmRingRouter::recv_port_subnet(TmRingPortDir in_dir,
+                                    TmRingSubnet subnet) {
+  auto inf = port_inf(in_dir);
+  auto q = input_queue(in_dir, subnet);
+  uint32_t class_num = traffic_slot_count();
+
+  for (uint32_t slot_class = 0; slot_class < class_num; ++slot_class) {
+    uint32_t cls;
+    uint32_t lane;
+    decode_slot(slot_class, cls, lane);
+
+    auto cmd = static_cast<PldCmd>(cls);
+    bool is_req = tm_ring_is_req_cmd(cmd);
+    if ((subnet == TmRingSubnet::REQ) != is_req) {
+      continue;
+    }
+
+    uint32_t chan = packet_channel(cls, lane);
+    if (!inf->valid(chan)) {
+      continue;
+    }
+    if (q->full()) {
+      break;
+    }
+
+    auto pld = inf->get_pld(chan);
+    pld->ring_subnet = tm_ring_subnet_index(subnet);
+    pld->ring_traffic_class = cls;
+    pld->ring_rsp_lane = lane;
+    q->push_back(pld);
+    inf->pop_pld(chan);
+    PEM_LOG_INFO(log_, "[{0:d}] recv_port router:{1:d} in:{2:d} "
+                       "subnet:{3:d} cmd:{4:d} gid:{5:d}",
+                 time(), router_id_, tm_ring_port_index(in_dir),
+                 tm_ring_subnet_index(subnet), cls, pld->gid);
+  }
+}
+
 uint32_t TmRingRouter::traffic_slot_count() const {
   // 基础命令各占一个 slot，RD_RSP 的额外 lane 各追加一个独立仲裁 slot。
   uint32_t extra_rd_rsp_lanes =
@@ -228,6 +316,21 @@ uint32_t TmRingRouter::packet_channel(uint32_t traffic_class,
                                       uint32_t lane) const {
   auto cmd = static_cast<PldCmd>(traffic_class);
   return tm_ring_packet_channel(cmd, lane);
+}
+
+p_tm_com_que_t TmRingRouter::input_queue(TmRingPortDir in_dir,
+                                         TmRingSubnet subnet) const {
+  uint32_t slot = ring_port_slot(in_dir);
+  return subnet == TmRingSubnet::REQ ? req_input_qs_[slot]
+                                     : rsp_input_qs_[slot];
+}
+
+uint32_t TmRingRouter::slot_class_for_packet(p_tm_pld_t pld) const {
+  auto cmd = static_cast<PldCmd>(pld->ring_traffic_class);
+  if (cmd == PldCmd::RD_RSP && pld->ring_rsp_lane > 0) {
+    return tm_ring_base_packet_channel_count() + pld->ring_rsp_lane - 1;
+  }
+  return pld->ring_traffic_class;
 }
 
 p_tm_com_inf_t TmRingRouter::inf_for_class(TmRingPortDir in_dir,
@@ -358,6 +461,10 @@ uint32_t TmRingRouter::local_channel(p_tm_pld_t pld) const {
 }
 p_tm_ring_candidate_t TmRingRouter::select_input_candidate(TmRingPortDir in_dir,
                                                            TmRingSubnet subnet) {
+  if (in_dir != TmRingPortDir::LOCAL) {
+    return select_buffered_candidate(in_dir, subnet);
+  }
+
   // 每次只为一个输入方向选择一个候选，防止同一输入在一次事件中被重复消费。
   auto candidate = std::make_shared<tm_ring_candidate_t>();
   uint32_t class_num = traffic_slot_count();
@@ -409,6 +516,28 @@ p_tm_ring_candidate_t TmRingRouter::select_input_candidate(TmRingPortDir in_dir,
   return nullptr;
 }
 
+p_tm_ring_candidate_t TmRingRouter::select_buffered_candidate(
+    TmRingPortDir in_dir, TmRingSubnet subnet) {
+  auto q = input_queue(in_dir, subnet);
+  if (q->empty()) {
+    return nullptr;
+  }
+
+  auto candidate = std::make_shared<tm_ring_candidate_t>();
+  auto pld = q->front();
+  candidate->pld = pld;
+  candidate->in_dir = in_dir;
+  candidate->out_dir = resolve_route(pld);
+  candidate->slot_id =
+      tm_ring_port_index(in_dir) * traffic_slot_count() +
+      slot_class_for_packet(pld);
+
+  if (!route_ready(candidate)) {
+    return nullptr;
+  }
+  return candidate;
+}
+
 void TmRingRouter::advance_local_input(TmRingSubnet subnet) {
   advance_input(TmRingPortDir::LOCAL, subnet);
 }
@@ -448,9 +577,13 @@ void TmRingRouter::commit_packet(TmRingSubnet subnet,
   output_rr_ptr_[out_idx] = candidate->slot_id;
 
   // pop 是事务离开当前 Router 的唯一位置，必须晚于下游 send 成功。
-  auto in_inf = inf_for_class(candidate->in_dir, pld->ring_traffic_class,
-                              pld->ring_rsp_lane);
-  in_inf->pop_pld(packet_channel(pld->ring_traffic_class, pld->ring_rsp_lane));
+  if (candidate->in_dir == TmRingPortDir::LOCAL) {
+    auto in_inf = inf_for_class(candidate->in_dir, pld->ring_traffic_class,
+                                pld->ring_rsp_lane);
+    in_inf->pop_pld(packet_channel(pld->ring_traffic_class, pld->ring_rsp_lane));
+  } else {
+    input_queue(candidate->in_dir, subnet)->pop_front();
+  }
   PEM_LOG_INFO(log_, "[{0:d}] route_commit router:{1:d} subnet:{2:d} "
                      "cmd:{3:d} gid:{4:d} in:{5:d} out:{6:d} addr:0x{7:x}",
                time(), router_id_, tm_ring_subnet_index(subnet),

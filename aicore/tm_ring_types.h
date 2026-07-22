@@ -35,6 +35,9 @@ inline constexpr uint32_t tm_ring_port_count() { return 3; }
 
 inline constexpr uint32_t tm_ring_subnet_count() { return 2; }
 
+// TmInf 只作为模块间 valid/ready 事件边界，真实缓存由 tm_que 表达。
+inline constexpr uint32_t tm_ring_inf_depth() { return 2; }
+
 inline constexpr uint32_t tm_ring_port_index(TmRingPortDir dir) {
   return static_cast<uint32_t>(dir);
 }
@@ -128,10 +131,6 @@ struct TmRingCfg {
   // 读响应返回通道数量；lane0 使用 RD_RSP 基础通道，额外 lane 追加在后面。
   uint32_t rd_rsp_port_num = 2;
 
-  // Master 侧 TmInf 端口延迟；创建端口时使用 delay + 1 作为容量。
-  uint32_t master_inf_delay = 1;
-  // Target 侧 TmInf 端口延迟，语义同 master_inf_delay。
-  uint32_t target_inf_delay = 1;
   // Master NIU 内部读命令 FIFO 深度，是真正的 master 侧缓存资源。
   uint32_t master_rd_cmd_fifo_depth = 8;
   // Master NIU 内部写命令 FIFO 深度，是真正的 master 侧缓存资源。
@@ -152,10 +151,8 @@ struct TmRingCfg {
   uint32_t ring_link_latency = 1;
   // Link 每周期可序列化发送的字节数。
   uint32_t ring_link_width_bytes = 16;
-  // RD/WR 请求头大小，用于计算请求包序列化周期。
-  uint32_t ring_req_header_bytes = 16;
-  // WR_RSP/RSP 响应头大小，用于计算响应包序列化周期。
-  uint32_t ring_rsp_header_bytes = 16;
+  // Router EAST/WEST 输入缓存深度，用于让到站 packet 先离开 Link。
+  uint32_t ring_router_input_depth = 2;
   // Target 配置，包括地址空间、interleave、credit、token 和 target 本地 FIFO。
   std::vector<p_tm_ring_target_cfg_t> targets;
 };

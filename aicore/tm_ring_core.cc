@@ -95,7 +95,7 @@ void TmRingFabric::create_target_ports() {
     auto target_cfg = cfg_->targets[i];
     target_ports_.push_back(tm_make_ring_target_port(
         this->name() + "_target_port_" + std::to_string(i), clk_, target_cfg,
-        cfg_->rd_rsp_port_num, cfg_->target_inf_delay));
+        cfg_->rd_rsp_port_num));
   }
 }
 

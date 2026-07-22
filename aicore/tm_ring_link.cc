@@ -5,6 +5,13 @@
 
 using namespace tm_engine;
 
+namespace {
+
+constexpr uint32_t kRingReqHeaderBytes = 16;
+constexpr uint32_t kRingRspHeaderBytes = 16;
+
+}  // namespace
+
 TmRingLink::TmRingLink() {}
 
 TmRingLink::TmRingLink(const std::string& name, p_tm_clk_t clk,
@@ -44,7 +51,7 @@ void TmRingLink::config(const std::string& name, p_tm_clk_t clk,
 
   // dst_out_inf_ 只负责 Link 到下游 Router 的 valid/ready 交互。
   dst_out_inf_ = tm_make_com_inf(clk_, name_ + "_dst_out_inf",
-                                 cfg_->target_inf_delay + 1);
+                                 tm_ring_inf_depth());
   dst_out_inf_->set_chan_num(
       tm_ring_packet_channel_count(cfg_->rd_rsp_port_num));
 
@@ -188,7 +195,7 @@ uint32_t TmRingLink::packet_bytes(p_tm_pld_t pld) const {
   // RD/WR 仅传请求头，读取的数据长度不应占用请求 Link 带宽。
   auto cmd = static_cast<PldCmd>(pld->ring_traffic_class);
   if (cmd == PldCmd::RD || cmd == PldCmd::WR) {
-    return cfg_->ring_req_header_bytes;
+    return kRingReqHeaderBytes;
   }
   // WR_DAT 和 RD_RSP 携带真实数据，序列化字节数采用 payload size。
   if (cmd == PldCmd::WR_DAT) {
@@ -196,7 +203,7 @@ uint32_t TmRingLink::packet_bytes(p_tm_pld_t pld) const {
   }
   // 写 grant 和写完成响应都只按响应头计算。
   if (cmd == PldCmd::WR_RSP || cmd == PldCmd::RSP) {
-    return cfg_->ring_rsp_header_bytes;
+    return kRingRspHeaderBytes;
   }
   return pld->size;
 }

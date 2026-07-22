@@ -13,11 +13,10 @@ TmRingTargetPort::TmRingTargetPort()
 
 TmRingTargetPort::TmRingTargetPort(const std::string& name, p_tm_clk_t clk,
                                    p_tm_ring_target_cfg_t cfg,
-                                   uint32_t rd_rsp_port_num,
-                                   uint32_t inf_delay)
+                                   uint32_t rd_rsp_port_num)
     : TmModule(name)
 {
-    config(name, clk, cfg, rd_rsp_port_num, inf_delay);
+    config(name, clk, cfg, rd_rsp_port_num);
 }
 
 TmRingTargetPort::~TmRingTargetPort()
@@ -26,8 +25,7 @@ TmRingTargetPort::~TmRingTargetPort()
 
 void
 TmRingTargetPort::config(const std::string& name, p_tm_clk_t clk,
-                         p_tm_ring_target_cfg_t cfg, uint32_t rd_rsp_port_num,
-                         uint32_t inf_delay)
+                         p_tm_ring_target_cfg_t cfg, uint32_t rd_rsp_port_num)
 {
     name_ = name;
     this->name(name_);
@@ -43,7 +41,7 @@ TmRingTargetPort::config(const std::string& name, p_tm_clk_t clk,
     uint32_t chan_num = std::max<uint32_t>(
         tm_ring_cmd_bus_channel(PldCmd::WR_DAT) + 1,
         tm_ring_rd_rsp_bus_channel(0) + rd_rsp_port_num_);
-    inf_ = tm_make_com_inf(clk_, name_ + "_inf", inf_delay + 1);
+    inf_ = tm_make_com_inf(clk_, name_ + "_inf", tm_ring_inf_depth());
     inf_->set_chan_num(chan_num);
     // 三个回调共享 inf_->vld，但分别只处理读响应、写 grant 和写完成响应。
     tm_sensitive(TM_MAKE_CPROC(&TmRingTargetPort::recv_rd_cmd_rsp), inf_->vld);
@@ -51,7 +49,8 @@ TmRingTargetPort::config(const std::string& name, p_tm_clk_t clk,
     tm_sensitive(TM_MAKE_CPROC(&TmRingTargetPort::recv_wr_dat_rsp), inf_->vld);
 
     // ring_inf_ 面向本地 Router，同时承载 Ring 请求输入和响应输出。
-    ring_inf_ = tm_make_com_inf(clk_, name_ + "_ring_inf", inf_delay + 1);
+    ring_inf_ = tm_make_com_inf(clk_, name_ + "_ring_inf",
+                                tm_ring_inf_depth());
     ring_inf_->set_chan_num(tm_ring_packet_channel_count(rd_rsp_port_num_));
     tm_sensitive(TM_MAKE_CPROC(&TmRingTargetPort::recv_ring_req),
                  ring_inf_->vld);

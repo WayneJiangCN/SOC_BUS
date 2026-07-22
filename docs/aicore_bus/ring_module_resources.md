@@ -19,7 +19,7 @@ TmRingRouter
   v
 TmRingLink
   |
-  | dst_inf_ <-> next Router EAST/WEST port
+  | dst_out_inf_ -> next Router EAST/WEST input buffer
   v
 TmRingRouter
   |
@@ -37,7 +37,7 @@ Ring 中有两个逻辑 subnet：
 - `REQ subnet`：承载 `RD`、`WR`、`WR_DAT`。
 - `RSP subnet`：承载 `RD_RSP`、`WR_RSP`、`RSP`。
 
-`TmInf` 本身带 valid-ready 和 depth，因此可以作为端口短缓存；`TmQue` 用于模块内部更明确的本地队列，例如 NIU 的命令队列、TargetPort 的 request queue、Link 的 in-flight queue。
+`TmInf` 本身只作为 valid-ready 事件边界；`TmQue` 用于模块内部更明确的本地队列，例如 NIU 的命令队列、Router 的 EAST/WEST input buffer、TargetPort 的 request queue、Link 的 in-flight queue。
 
 ## 2. `TmRingFabric`
 
@@ -117,8 +117,9 @@ TmRingInf::router_inf_ <-> Router LOCAL master inf
 
 ### 资源
 
-- `port_infs_`：三个输入端口，顺序为 `LOCAL/EAST/WEST`。
-- `link_out_infs_`：发往 EAST/WEST Link 的输出接口。
+- `port_infs_`：EAST/WEST 到站输入接口，承接相邻 Link 的 `dst_out_inf_`。
+- `req_input_qs_`：EAST/WEST 的 REQ subnet 输入缓存。
+- `rsp_input_qs_`：EAST/WEST 的 RSP subnet 输入缓存。
 - `local_master_infs_`：本地 master ejection 接口。
 - `local_target_infs_`：本地 target ejection 接口。
 - `east_link_` / `west_link_`：左右两个有向 link。
@@ -131,9 +132,9 @@ TmRingInf::router_inf_ <-> Router LOCAL master inf
 ```text
 Router LOCAL port <-> TmRingInf::router_inf_
 Router LOCAL port <-> TmRingTargetPort::ring_inf_
-Router EAST output inf -> east Link src_inf_
-Router WEST output inf -> west Link src_inf_
-Link dst_inf_ -> next Router EAST/WEST input port
+Router EAST/WEST output -> TmRingLink::accept_pkt()
+Link dst_out_inf_ -> next Router port_inf(EAST/WEST)
+Router port_inf(EAST/WEST) -> req_input_qs_ / rsp_input_qs_
 ```
 
 ### 转发规则
@@ -148,7 +149,7 @@ Link dst_inf_ -> next Router EAST/WEST input port
 
 ### 缓存边界
 
-Router 的缓存来自端口 `TmInf` 的 depth，定位是轻量 input buffer。长期等待、协议状态和事务完成状态不放在 Router。
+Router 的外部输入缓存来自 EAST/WEST 的 `req_input_qs_` 和 `rsp_input_qs_`。它只吸收到站 packet，帮助 Link 尽快释放 in-flight；长期等待、协议状态和事务完成状态不放在 Router。
 
 ## 5. `TmRingLink`
 
@@ -156,10 +157,8 @@ Router 的缓存来自端口 `TmInf` 的 depth，定位是轻量 input buffer。
 
 ### 资源
 
-- `src_inf_`：上游 Router 发送到 Link 的入口接口。
-- `dst_inf_`：Link 发送到下游 Router 的出口接口。
+- `dst_out_inf_`：Link 发送到下游 Router 的出口接口。
 - `inflight_packets_`：每个 subnet 一个 `TmQue`，表达传播延迟中的在途 packet。
-- `max_inflight_`：每个 subnet 的 Link OSD 限制。
 - `inflight_count_`：当前每个 subnet 在途数。
 - `next_send_time_`：链路序列化占用到什么时候。
 - `width_bytes_`：每周期链路发送宽度。
@@ -170,17 +169,17 @@ Router 的缓存来自端口 `TmInf` 的 depth，定位是轻量 input buffer。
 ### 连接
 
 ```text
-Router link_out_inf -> Link src_inf_
-Link dst_inf_ -> next Router port_inf(EAST/WEST)
+Router output -> Link accept_pkt()
+Link dst_out_inf_ -> next Router port_inf(EAST/WEST)
 ```
 
 ### 行为
 
-1. Router 调用 `src_inf_->send()` 把 packet 送入 Link。
+1. Router 调用 `accept_pkt()` 把 packet 送入 Link。
 2. Link 根据 `packet_bytes()` 和 `width_bytes_` 计算序列化周期。
 3. Link 把 packet 放入 `inflight_packets_[subnet]`，等待固定传播延迟。
-4. `drain_ready_packets()` 在 packet ready 后尝试发到 `dst_inf_`。
-5. 下游 `dst_inf_` 满时不 pop，packet 保留在 Link FIFO，形成反压。
+4. `drain_ready_packets()` 在 packet ready 后尝试发到 `dst_out_inf_`。
+5. 下游 `dst_out_inf_` 满时不 pop，packet 保留在 Link FIFO，形成反压。
 
 ## 6. `TmRingTargetPort`
 

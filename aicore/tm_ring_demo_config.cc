@@ -110,19 +110,10 @@ std::string option_to_key(const std::string& option)
         {"--interleave-size", "interleave_size"},
         {"--interleave-hash-shift", "interleave_hash_shift"},
         {"--interleave-hash-seed", "interleave_hash_seed"},
-        {"--target-frontend-latency", "target_frontend_latency"},
-        {"--target-forward-latency", "target_forward_latency"},
-        {"--target-response-latency", "target_response_latency"},
-        {"--target-header-latency", "target_header_latency"},
         {"--target-width", "target_width_bytes"},
-        {"--hotspot-threshold", "hotspot_threshold"},
-        {"--hotspot-penalty", "hotspot_penalty"},
         {"--link-latency", "ring_link_latency"},
         {"--link-width", "ring_link_width_bytes"},
-        {"--link-req-header-bytes", "ring_req_header_bytes"},
-        {"--link-rsp-header-bytes", "ring_rsp_header_bytes"},
-        {"--master-inf-delay", "master_inf_delay"},
-        {"--target-inf-delay", "target_inf_delay"},
+        {"--router-input-depth", "ring_router_input_depth"},
         {"--master-fifo-depth", "master_fifo_depth"},
         {"--target-fifo-depth", "target_fifo_depth"},
         {"--master-rd-osd", "master_rd_osd"},
@@ -210,17 +201,9 @@ bool apply_demo_value(const std::string& raw_key, const std::string& raw_value,
     else if (key == "interleave_size") field = &config->interleave_size;
     else if (key == "interleave_hash_shift") field = &config->interleave_hash_shift;
     else if (key == "interleave_hash_seed") field = &config->interleave_hash_seed;
-    else if (key == "target_frontend_latency") field = &config->target_frontend_latency;
-    else if (key == "target_forward_latency") field = &config->target_forward_latency;
-    else if (key == "target_response_latency") field = &config->target_response_latency;
-    else if (key == "target_header_latency") field = &config->target_header_latency;
     else if (key == "target_width_bytes") field = &config->target_width_bytes;
-    else if (key == "hotspot_threshold") field = &config->hotspot_threshold;
-    else if (key == "hotspot_penalty") field = &config->hotspot_penalty;
     else if (key == "master_fifo_depth") field = &config->master_fifo_depth;
     else if (key == "target_fifo_depth") field = &config->target_fifo_depth;
-    else if (key == "master_inf_delay") field = &config->master_inf_delay;
-    else if (key == "target_inf_delay") field = &config->target_inf_delay;
     else if (key == "master_rd_osd") field = &config->master_rd_osd;
     else if (key == "master_wr_osd") field = &config->master_wr_osd;
     else if (key == "global_osd") field = &config->global_osd;
@@ -229,8 +212,7 @@ bool apply_demo_value(const std::string& raw_key, const std::string& raw_value,
     else if (key == "target_acc_osd") field = &config->target_acc_osd;
     else if (key == "ring_link_latency") field = &config->ring_link_latency;
     else if (key == "ring_link_width_bytes") field = &config->ring_link_width_bytes;
-    else if (key == "ring_req_header_bytes") field = &config->ring_req_header_bytes;
-    else if (key == "ring_rsp_header_bytes") field = &config->ring_rsp_header_bytes;
+    else if (key == "ring_router_input_depth") field = &config->ring_router_input_depth;
     else {
         *error = "unknown configuration key: " + key;
         return false;
@@ -360,16 +342,12 @@ bool validate_config(const RingDemoConfig& config, std::string* error)
     if (config.interleave_size == 0 || config.target_width_bytes == 0 ||
         config.ring_link_width_bytes == 0 || config.master_fifo_depth == 0 ||
         config.target_fifo_depth == 0 || config.ring_link_latency == 0 ||
+        config.ring_router_input_depth == 0 ||
         config.master_rd_osd == 0 ||
         config.master_wr_osd == 0 || config.global_osd == 0 ||
         config.target_rd_osd == 0 || config.target_wr_osd == 0 ||
         config.target_acc_osd == 0) {
         *error = "width, FIFO, link latency and all OSD values must be non-zero";
-        return false;
-    }
-    if (config.master_inf_delay == std::numeric_limits<uint32_t>::max() ||
-        config.target_inf_delay == std::numeric_limits<uint32_t>::max()) {
-        *error = "interface delay must be smaller than UINT32_MAX";
         return false;
     }
     if (!std::isfinite(config.performance_target_pct) ||

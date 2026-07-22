@@ -32,8 +32,7 @@ void TmRingInf::config() {
 
   // bus_inf_ 只承担与 BIU 的握手；请求进入后先落入下面的 tm_que。
   bus_inf_ =
-      tm_make_com_inf(clk_, this->name() + "_bus_inf",
-                      cfg_->master_inf_delay + 1);
+      tm_make_com_inf(clk_, this->name() + "_bus_inf", tm_ring_inf_depth());
   bus_inf_->set_chan_num(chan_num);
   // 同一个 vld 事件可唤醒三个处理函数，各函数只检查自己负责的通道。
   tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_rd_cmd), bus_inf_->vld);
@@ -42,7 +41,7 @@ void TmRingInf::config() {
 
   // router_inf_ 是 NIU 与本地 Router 的双向接口：请求注入、响应弹出均经过它。
   router_inf_ = tm_make_com_inf(clk_, this->name() + "_router_inf",
-                                cfg_->master_inf_delay + 1);
+                                tm_ring_inf_depth());
   router_inf_->set_chan_num(tm_ring_packet_channel_count(cfg_->rd_rsp_port_num));
   tm_sensitive(TM_MAKE_CPROC(&TmRingInf::recv_router_rsp),
                router_inf_->vld);

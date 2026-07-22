@@ -57,6 +57,10 @@ class TmRingRouter : public tm_engine::TmModule
     void route_local_response();
     void route_east_response();
     void route_west_response();
+    void recv_east_input();
+    void recv_west_input();
+    void recv_port_input(TmRingPortDir in_dir);
+    void recv_port_subnet(TmRingPortDir in_dir, TmRingSubnet subnet);
     void advance_local_input(TmRingSubnet subnet);
     void advance_east_input(TmRingSubnet subnet);
     void advance_west_input(TmRingSubnet subnet);
@@ -64,6 +68,8 @@ class TmRingRouter : public tm_engine::TmModule
     // 扫描指定输入端口，在该子网的固定 slot 空间内执行 Round-Robin。
     p_tm_ring_candidate_t select_input_candidate(TmRingPortDir in_dir,
                                                  TmRingSubnet subnet);
+    p_tm_ring_candidate_t select_buffered_candidate(TmRingPortDir in_dir,
+                                                    TmRingSubnet subnet);
     // 只有下游成功接收后才更新 RR 指针并 pop 输入端事务。
     void commit_packet(TmRingSubnet subnet, p_tm_ring_candidate_t candidate);
     // 请求路由到 Target 节点，响应路由回原 Master 节点。
@@ -84,13 +90,19 @@ class TmRingRouter : public tm_engine::TmModule
     p_tm_com_inf_t inf_for_class(TmRingPortDir in_dir,
                                  uint32_t traffic_class,
                                  uint32_t lane = 0) const;
+    p_tm_com_que_t input_queue(TmRingPortDir in_dir,
+                               TmRingSubnet subnet) const;
+    uint32_t slot_class_for_packet(p_tm_pld_t pld) const;
 
     std::string name_;
     tm_engine::p_tm_clk_t clk_ = nullptr;
     p_tm_ring_cfg_t cfg_ = nullptr;
 
-    // EAST/WEST 输入端口仅表达逐跳暂存和握手，不保存完整事务生命周期。
+    // EAST/WEST 输入端口仅表达 Link 到站握手，不保存完整事务生命周期。
     std::vector<p_tm_com_inf_t> port_infs_;
+    // EAST/WEST 输入缓存承接已到站 packet，让 Link 可以尽快释放 in-flight。
+    std::vector<p_tm_com_que_t> req_input_qs_;
+    std::vector<p_tm_com_que_t> rsp_input_qs_;
 
     // 每个输出/输入方向、每个子网独立保存上次 grant，保证长期公平性。
     std::vector<uint32_t> output_rr_ptr_;

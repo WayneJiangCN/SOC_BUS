@@ -37,18 +37,10 @@ struct RingDemoConfig
     uint32_t interleave_hash_shift = 6;
     uint32_t interleave_hash_seed = 0;
 
-    uint32_t target_frontend_latency = 1;
-    uint32_t target_forward_latency = 0;
-    uint32_t target_response_latency = 1;
-    uint32_t target_header_latency = 1;
     uint32_t target_width_bytes = 32;
-    uint32_t hotspot_threshold = 16;
-    uint32_t hotspot_penalty = 0;
 
     uint32_t master_fifo_depth = 16;
     uint32_t target_fifo_depth = 16;
-    uint32_t master_inf_delay = 1;
-    uint32_t target_inf_delay = 1;
 
     uint32_t master_rd_osd = 16;
     uint32_t master_wr_osd = 16;
@@ -60,8 +52,7 @@ struct RingDemoConfig
 
     uint32_t ring_link_latency = 1;
     uint32_t ring_link_width_bytes = 16;
-    uint32_t ring_req_header_bytes = 16;
-    uint32_t ring_rsp_header_bytes = 16;
+    uint32_t ring_router_input_depth = 2;
 
     double performance_target_pct = 80.0;
     double clock_ghz = 1.0;

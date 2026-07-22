@@ -24,7 +24,7 @@ Router i WEST 输出
 
 - 上游由持有该 Link 的 Router 输出方向决定。
 - 下游由 `dst_router_` 和 `dst_dir_` 在创建时固定。
-- `attach()` 只负责把 Link 的出口 `dst_out_inf_` 连接到下游 Router 输入端口。
+- `attach()` 只负责把 Link 的出口 `dst_out_inf_` 连接到下游 Router 的 EAST/WEST 输入接口。
 
 ## 2. 当前 Link 的核心资源
 
@@ -43,6 +43,7 @@ Router i WEST 输出
 
 - `inflight_packets_` 是 Link 的真实建模队列，用于表达传播延迟和在途状态。
 - `dst_out_inf_` 只是出口握手接口，不应被理解成额外的链路缓存。
+- 下游 Router 的 EAST/WEST input buffer 才是 packet 到站后的 Router 本地缓存。
 
 ## 3. 请求进入 Link 的流程
 
@@ -54,7 +55,8 @@ Router
   -> link->accept_pkt(pld)
   -> inflight_packets_[subnet]
   -> dst_out_inf_->send(...)
-  -> 下游 Router 输入端口
+  -> 下游 Router port_inf(EAST/WEST)
+  -> Router input buffer
 ```
 
 Link 接收上游 packet 时检查的是 Link 自己是否有资源：
@@ -67,7 +69,7 @@ Link 接收上游 packet 时检查的是 Link 自己是否有资源：
 
 ## 4. 下游反压如何生效
 
-packet 进入 `inflight_packets_` 后，会在 `latency_` 周期后变为 valid。`drain_ready_packets()` 再尝试通过 `dst_out_inf_` 发给下游 Router。
+packet 进入 `inflight_packets_` 后，会在 `latency_` 周期后变为 valid。`drain_ready_packets()` 再尝试通过 `dst_out_inf_` 发给下游 Router 输入接口，Router 随后把到站 packet 搬入 EAST/WEST input buffer。
 
 如果下游 Router 当前不能接收：
 
@@ -83,6 +85,8 @@ dst_out_inf_->send(...) == false
 - 依赖 `TmQue` 的 valid 事件继续调度。
 
 这就是当前模型中的链路反压。
+
+Router input buffer 的作用是让已经到站的 packet 尽快离开 Link，避免 Router 仲裁慢时长期占住 Link in-flight 资源。
 
 ## 5. Link 如何模拟 128B 经过 16B 链路
 
@@ -125,12 +129,12 @@ next_send_time_[subnet] = now + serialization_cycles
 
 | 命令 | 字节数来源 |
 | --- | --- |
-| `RD` | 请求头大小 `ring_req_header_bytes`。 |
-| `WR` | 请求头大小 `ring_req_header_bytes`。 |
+| `RD` | 固定请求头大小，当前模型内部按 16B 计算。 |
+| `WR` | 固定请求头大小，当前模型内部按 16B 计算。 |
 | `WR_DAT` | 写数据 payload 大小 `pld->size`。 |
 | `RD_RSP` | 读返回 payload 大小 `pld->size`。 |
-| `WR_RSP` | 响应头大小 `ring_rsp_header_bytes`。 |
-| `RSP` | 响应头大小 `ring_rsp_header_bytes`。 |
+| `WR_RSP` | 固定响应头大小，当前模型内部按 16B 计算。 |
+| `RSP` | 固定响应头大小，当前模型内部按 16B 计算。 |
 
 这样可以避免把 `RD` 请求错误地当成完整读数据包处理。
 
@@ -204,7 +208,7 @@ EAST/WEST input -> can_accept()
 
 3. `dst_out_inf_` 仍有 TmInf 自身 depth/delay 语义。
 
-   设计上它只是出口握手接口，不应承担额外链路容量建模。后续如果发现多打一拍，需要继续收敛内部 TmInf 的使用方式。
+   设计上它只是出口握手接口，不应承担额外链路容量建模。Router input buffer 才是到站后的显式缓存。后续如果发现多打一拍，需要继续收敛内部 TmInf 的使用方式。
 
 4. capacity 由 `latency + 1` 推导，缺少独立校准自由度。
 
