@@ -71,7 +71,7 @@ void TmRingLink::config(const std::string& name, p_tm_clk_t clk,
 
 void TmRingLink::reset() {
   // 传播队列、在途计数和序列化时间必须成组清理，防止资源状态不一致。
-  dst_out_inf_->reset();
+  // dst_out_inf_ 已连接到下游 Router 输入端口，下游端口由 Router 自己 reset。
   std::fill(next_send_time_.begin(), next_send_time_.end(), 0);
   std::fill(inflight_count_.begin(), inflight_count_.end(), 0);
   std::fill(stats_.begin(), stats_.end(), LinkSubnetStats());
@@ -82,7 +82,7 @@ void TmRingLink::reset() {
 
 bool TmRingLink::idle() const {
   // 仅队列为空还不够，在途计数也必须归零，便于发现计数泄漏。
-  bool ret = dst_out_inf_->idle();
+  bool ret = true;
   for (auto& q : inflight_packets_) {
     ret = ret && q->empty();
   }

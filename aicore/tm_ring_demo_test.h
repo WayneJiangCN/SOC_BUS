@@ -289,6 +289,7 @@ run_demo(const std::string& ddr_config_file,
             "biu" + std::to_string(master), clk, biu_cfg);
         biu->core_id_ = master;
         biu->build();
+        biu->reset();
         ring->attach_master(master, biu);
         bius.push_back(biu);
 
@@ -309,10 +310,7 @@ run_demo(const std::string& ddr_config_file,
         ring->attach_target(target, targets[target]);
     }
 
-    ring->reset();
-    for (auto& biu : bius) {
-        biu->reset();
-    }
+    // Ring 在构造阶段已经 reset；attach 后不要再次 reset 已连接的 TmInf。
     for (auto& demo : demos) {
         demo->reset();
     }

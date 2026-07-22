@@ -14,7 +14,7 @@ using namespace tm_engine;
 
 TmRingInf::TmRingInf(const std::string& name, p_tm_clk_t clk, uint32_t inf_id,
                      p_tm_ring_cfg_t cfg)
-    : TmModule(name), clk_(clk), cfg_(cfg), inf_id_(inf_id) {
+    : TmModule(name), inf_id_(inf_id), clk_(clk), cfg_(cfg) {
   config();
 }
 
