@@ -100,12 +100,12 @@ TmRingTopology::target_matches(uint64_t addr,
         return false;
     }
 
-    if (target_cfg->interleave_ways <= 1) {
+    if (target_cfg->interleave_num <= 1) {
         return true;
     }
 
     return calc_interleave_slice(addr, target_cfg) ==
-           target_cfg->interleave_slice;
+           target_cfg->interleave_idx;
 }
 
 uint64_t
@@ -121,7 +121,7 @@ TmRingTopology::calc_linear_slice(uint64_t addr,
 {
     return static_cast<uint32_t>(
         calc_interleave_stripe(addr, target_cfg) %
-        target_cfg->interleave_ways);
+        target_cfg->interleave_num);
 }
 
 uint32_t
@@ -132,7 +132,7 @@ TmRingTopology::calc_xor_hash_slice(uint64_t addr,
     uint64_t hashed = stripe_id ^
                       (stripe_id >> target_cfg->interleave_hash_shift) ^
                       (stripe_id >> (target_cfg->interleave_hash_shift * 2));
-    return static_cast<uint32_t>(hashed % target_cfg->interleave_ways);
+    return static_cast<uint32_t>(hashed % target_cfg->interleave_num);
 }
 
 uint32_t
