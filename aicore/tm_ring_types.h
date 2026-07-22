@@ -20,13 +20,14 @@ using p_tm_ring_target_cfg_t = p_tm_bus_target_cfg_t;
 enum class TmRingPortDir : uint32_t {
   // LOCAL 表示当前 Router 挂接的 Master NIU 或 TargetPort。
   LOCAL = 0,
-  // EAST 表示顺时针方向，WEST 表示逆时针方向。
+  // EAST 表示顺时针方向。
   EAST = 1,
+  // WEST 表示逆时针方向。
   WEST = 2,
 };
 
 enum class TmRingSubnet : uint32_t {
-  // 请求和响应使用独立子网，避免响应被持续请求流量长期阻塞。
+  // 请求和响应使用独立子网，避免响应被请求流量长期阻塞。
   REQ = 0,
   RSP = 1,
 };
@@ -47,7 +48,7 @@ inline constexpr uint32_t tm_ring_subnet_index(TmRingSubnet subnet) {
 }
 
 inline constexpr bool tm_ring_is_req_cmd(PldCmd cmd) {
-  // WR_DAT 虽然是写事务的第二阶段，但在 Ring 中仍属于请求方向。
+  // WR_DAT 是写事务第二阶段，但在 Ring 中仍属于请求方向。
   return cmd == PldCmd::RD || cmd == PldCmd::WR || cmd == PldCmd::WR_DAT;
 }
 
@@ -97,7 +98,7 @@ inline constexpr uint32_t tm_ring_base_packet_channel_count() {
 
 inline constexpr uint32_t tm_ring_packet_channel(PldCmd cmd,
                                                  uint32_t lane = 0) {
-  // lane0 直接使用 RD_RSP 的枚举值，额外 lane 追加到基础命令通道之后。
+  // lane0 直接使用 RD_RSP 枚举值，额外 lane 追加到基础命令通道之后。
   return cmd == PldCmd::RD_RSP
              ? (lane == 0 ? static_cast<uint32_t>(PldCmd::RD_RSP)
                           : tm_ring_base_packet_channel_count() + lane - 1)
@@ -122,38 +123,32 @@ inline constexpr TmRingPortDir tm_ring_opposite_dir(TmRingPortDir dir) {
 }
 
 struct TmRingCfg {
-  // Ring 实例名，用于模块命名和日志文件前缀。
+  // Ring 实例名称，用于模块命名和日志文件前缀。
   std::string name = "";
   // Master/NIU 数量。
   uint32_t num_masters = 1;
-  // Target/Memory partition 数量。
-  uint32_t num_targets = 1;
-  // 读响应返回通道数量；lane0 使用 RD_RSP 基础通道，额外 lane 追加在后面。
+  // 读响应返回通道数量；lane0 使用 RD_RSP 基础通道。
   uint32_t rd_rsp_port_num = 2;
 
-  // Master NIU 内部读命令 FIFO 深度，是真正的 master 侧缓存资源。
+  // Master NIU 内部 FIFO 深度，是真正的 master 侧缓存资源。
   uint32_t master_rd_cmd_fifo_depth = 8;
-  // Master NIU 内部写命令 FIFO 深度，是真正的 master 侧缓存资源。
   uint32_t master_wr_cmd_fifo_depth = 8;
-  // Master NIU 内部写数据 FIFO 深度，保存 grant 后待注入 Ring 的 WR_DAT。
   uint32_t master_wr_dat_fifo_depth = 8;
-  // Master NIU 内部写完成响应 FIFO 深度，保存待返回 BIU 的 WR_DAT_RSP。
   uint32_t master_wr_rsp_fifo_depth = 8;
 
-  // 单个 master 允许的读事务 outstanding 上限。
+  // 单个 master 允许的读/写事务 outstanding 上限。
   uint32_t master_rd_osd = 8;
-  // 单个 master 允许的写事务 outstanding 上限。
   uint32_t master_wr_osd = 8;
-  // 全局事务 outstanding 上限，当前保留给后续全局 OSD 统计/限制使用。
+  // 全局事务 outstanding 上限。
   uint32_t global_osd = 128;
 
-  // Ring 每跳固定传播延迟，由 Link 内部 tm_que delay 表达，并作为 Link capacity。
+  // Ring 每跳固定传播延迟，由 Link 内部 tm_que delay 表达。
   uint32_t ring_link_latency = 1;
   // Link 每周期可序列化发送的字节数。
   uint32_t ring_link_width_bytes = 16;
   // Router EAST/WEST 输入缓存深度，用于让到站 packet 先离开 Link。
   uint32_t ring_router_input_depth = 2;
-  // Target 配置，包括地址空间、interleave、credit、token 和 target 本地 FIFO。
+  // Target 配置列表；运行时 Target 数量以 targets.size() 为准。
   std::vector<p_tm_ring_target_cfg_t> targets;
 };
 
@@ -161,10 +156,10 @@ using tm_ring_cfg_t = TmRingCfg;
 using p_tm_ring_cfg_t = std::shared_ptr<tm_ring_cfg_t>;
 
 struct TmRingRdRspState {
-  // 一笔读事务可能返回多个响应分片，只有全部分片到齐后才能完成事务。
+  // 一笔读事务可能返回多个响应分片，全部到齐后才算完成。
   uint32_t rsp_expected = 1;
   uint32_t rsp_seen = 0;
-  // Target credit 只能释放一次，防止多分片响应造成重复释放。
+  // Target credit 只能释放一次，防止多分片响应重复释放。
   bool slot_released = false;
 };
 

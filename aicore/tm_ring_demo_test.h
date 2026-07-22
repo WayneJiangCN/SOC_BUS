@@ -81,7 +81,6 @@ make_demo_ring_cfg(const p_tm_mem_cfg_t& ddr_cfg,
     auto cfg = tm_make_ring_cfg();
     cfg->name = "demo_ring_" + tc.name;
     cfg->num_masters = tc.num_masters;
-    cfg->num_targets = tc.num_targets;
     cfg->rd_rsp_port_num = 2;
 
     cfg->master_rd_cmd_fifo_depth = tc.master_fifo_depth;

@@ -76,7 +76,6 @@ using p_tm_bus_target_cfg_t = std::shared_ptr<tm_bus_target_cfg_t>;
 struct TmBusCfg
 {
     std::string name = "";
-    uint32_t num_targets = 1;
     uint32_t global_osd = 128;
 
     std::vector<p_tm_bus_target_cfg_t> targets;
