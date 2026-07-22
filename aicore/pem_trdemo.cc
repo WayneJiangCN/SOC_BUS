@@ -1,6 +1,7 @@
 #include "pem_trdemo.h"
 
 #include <algorithm>
+#include <iostream>
 
 //----------------------------------------------------------------------------------------
 PemTrDemo::PemTrDemo(const std::string &name, tm_engine::p_tm_clk_t clk)
@@ -78,12 +79,19 @@ bool PemTrDemo::idle()
 
 void PemTrDemo::reset()
 {
+    std::cerr << this->name() << " reset begin" << std::endl;
     current_uop_count_ = 0;
+    std::cerr << this->name() << " reset pair_buffer" << std::endl;
     pair_buffer_.clear();
+    std::cerr << this->name() << " reset read_issue_cycles" << std::endl;
     read_issue_cycles_.clear();
+    std::cerr << this->name() << " reset write_buffer_ids" << std::endl;
     write_buffer_ids_.clear();
+    std::cerr << this->name() << " reset write_issue_cycles" << std::endl;
     write_issue_cycles_.clear();
+    std::cerr << this->name() << " reset stats" << std::endl;
     stats_ = PemTrDemoStats{};
+    std::cerr << this->name() << " reset free_write_buf_ids" << std::endl;
     while (!free_write_buf_ids_.empty())
     {
         free_write_buf_ids_.pop();
@@ -92,9 +100,13 @@ void PemTrDemo::reset()
     {
         free_write_buf_ids_.push(i);
     }
+    std::cerr << this->name() << " reset instr_que" << std::endl;
     instr_que_->clear();
+    std::cerr << this->name() << " reset uop_que" << std::endl;
     uop_que_->clear();
+    std::cerr << this->name() << " reset pipe_que" << std::endl;
     pipe_que_->clear();
+    std::cerr << this->name() << " reset end" << std::endl;
 }
 
 void PemTrDemo::gen_uop()

@@ -735,6 +735,33 @@ run_demo(const std::string& ddr_config_file,
               << ring_link_breakdown.downstream_fifo_full
               << " ring_link_stalls=" << ring_link_stalls
               << " dominant=" << dominant_bottleneck << std::endl;
+    auto print_hot_links =
+        [](const char* subnet_name,
+           const std::vector<TmRingLinkHotspot>& hot_links) {
+            for (uint32_t i = 0; i < hot_links.size(); ++i) {
+                const auto& link = hot_links[i];
+                if (link.packets == 0 && link.busy_cycles == 0 &&
+                    link.total_stalls == 0) {
+                    continue;
+                }
+                std::cout << "TEST_LINK_HOTSPOT subnet=" << subnet_name
+                          << " rank=" << (i + 1)
+                          << " src_router=" << link.src_router
+                          << " src_dir=" << tm_ring_port_index(link.src_dir)
+                          << " dst_router=" << link.dst_router
+                          << " dst_dir=" << tm_ring_port_index(link.dst_dir)
+                          << " packets=" << link.packets
+                          << " bytes=" << link.bytes
+                          << " busy_cycles=" << link.busy_cycles
+                          << " serialization_busy_stalls="
+                          << link.serialization_busy_stall
+                          << " total_stalls=" << link.total_stalls
+                          << " inflight_peak=" << link.inflight_peak
+                          << std::endl;
+            }
+        };
+    print_hot_links("req", ring->ring_top_busy_links(TmRingSubnet::REQ, 5));
+    print_hot_links("rsp", ring->ring_top_busy_links(TmRingSubnet::RSP, 5));
     std::cout << "TEST_FAIRNESS jain_index=" << fairness << std::endl;
     std::cout << "TEST_IDLE ring=" << ring_idle << " demo=" << demo_idle
               << " biu=" << biu_idle << " target=" << target_idle

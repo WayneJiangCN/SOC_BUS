@@ -5,6 +5,8 @@
 #include "tm_ring_router.h"
 #include "tm_ring_target_port.h"
 
+#include <algorithm>
+
 using namespace std;
 using namespace tm_engine;
 
@@ -299,6 +301,61 @@ TmRingFabric::ring_link_stall_breakdown() const
                                        rsp.downstream_inf_full_stall;
     }
     return stalls;
+}
+
+std::vector<TmRingLinkHotspot>
+TmRingFabric::ring_top_busy_links(TmRingSubnet subnet, uint32_t limit) const
+{
+    std::vector<TmRingLinkHotspot> hot_links;
+    for (const auto& it : links_) {
+        auto link = it.second;
+        const auto& stats = link->subnet_stats(subnet);
+
+        TmRingLinkHotspot hot;
+        hot.src_router = static_cast<uint32_t>((it.first >> 48) & 0xffff);
+        hot.src_dir =
+            static_cast<TmRingPortDir>((it.first >> 40) & 0xff);
+        hot.dst_router = link->dst_router();
+        hot.dst_dir = link->dst_dir();
+        hot.subnet = subnet;
+        hot.packets = stats.packets;
+        hot.bytes = stats.bytes;
+        hot.busy_cycles = stats.busy_cycles;
+        hot.serialization_busy_stall = stats.serialization_busy_stall;
+        hot.total_stalls = stats.serialization_busy_stall +
+                           stats.inflight_limit_stall +
+                           stats.link_fifo_full_stall +
+                           stats.bubble_reserved_stall +
+                           stats.downstream_inf_full_stall;
+        hot.inflight_peak = stats.inflight_peak;
+        hot_links.push_back(hot);
+    }
+
+    std::sort(hot_links.begin(), hot_links.end(),
+              [](const TmRingLinkHotspot& lhs,
+                 const TmRingLinkHotspot& rhs) {
+                  if (lhs.serialization_busy_stall !=
+                      rhs.serialization_busy_stall) {
+                      return lhs.serialization_busy_stall >
+                             rhs.serialization_busy_stall;
+                  }
+                  if (lhs.busy_cycles != rhs.busy_cycles) {
+                      return lhs.busy_cycles > rhs.busy_cycles;
+                  }
+                  if (lhs.bytes != rhs.bytes) {
+                      return lhs.bytes > rhs.bytes;
+                  }
+                  if (lhs.src_router != rhs.src_router) {
+                      return lhs.src_router < rhs.src_router;
+                  }
+                  return tm_ring_port_index(lhs.src_dir) <
+                         tm_ring_port_index(rhs.src_dir);
+              });
+
+    if (hot_links.size() > limit) {
+        hot_links.resize(limit);
+    }
+    return hot_links;
 }
 
 uint64_t
