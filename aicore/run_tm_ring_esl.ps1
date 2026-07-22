@@ -1,7 +1,7 @@
 param(
     [ValidateSet('multi_core', 'multi_core_backpressure')]
     [string]$Case = 'multi_core',
-    [string]$Config = (Join-Path $PSScriptRoot 'config\tm_ring_demo.toml'),
+    [string]$Config = (Join-Path $PSScriptRoot 'config\pem_config_cloud.toml'),
     [Alias('PemConfig')]
     [string]$DdrConfig = '',
     [string]$Output = (Join-Path (Get-Location) 'tm_ring_multi_core_result.txt'),

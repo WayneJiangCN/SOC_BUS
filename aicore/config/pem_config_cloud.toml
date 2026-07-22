@@ -1,0 +1,83 @@
+# Unified PEM + Ring demo configuration.
+# The common PEM runtime reads [ARCH], [DDR], [L2] and [BIU].
+# The standalone Ring demo reads [RING_DEMO] and optional
+# [RING_DEMO.case.<name>] sections from the same file.
+
+[ARCH]
+inorder_acc = 1
+
+[DDR]
+addr_begin = 67108864
+min_read_latency = 347
+read_latency_diver = 4
+min_write_latency = 203
+write_latency_diver = 4
+min_dbid_latency = 1
+dbid_latency_diver = 1
+bandwidth_limit = 174
+max_credit_num = 4096
+
+[L2]
+addr_begin = 0
+size = 67108864
+min_read_latency = 20
+read_latency_diver = 1
+min_write_latency = 20
+write_latency_diver = 1
+min_dbid_latency = 1
+dbid_latency_diver = 1
+bandwidth_limit = 4096
+read_bandwidth_limit = 4096
+write_bandwidth_limit = 4096
+max_credit_num = 4096
+
+[BIU]
+icache_port_num = 1
+dcache_port_num = 1
+read_queue_size = 64
+write_queue_size = 64
+enable_memmap = 0
+mem_entry_num = 1
+mem_entry_size = 67108864
+phy_mem_entry_num = 1
+bus_read_port_num = 2
+
+[RING_DEMO]
+num_masters = 4
+num_targets = 4
+uops_per_master = 256
+cycles = 200000
+
+interleave = "linear"
+interleave_size = 128
+interleave_hash_shift = 6
+interleave_hash_seed = 0
+
+target_width_bytes = 32
+
+master_fifo_depth = 16
+target_fifo_depth = 16
+
+master_rd_osd = 16
+master_wr_osd = 16
+global_osd = 64
+
+target_rd_osd = 16
+target_wr_osd = 16
+target_acc_osd = 32
+
+ring_link_latency = 1
+ring_link_width_bytes = 16
+ring_router_input_depth = 2
+
+clock_ghz = 1.0
+performance_target_pct = 80.0
+require_performance_target = false
+
+[RING_DEMO.case.multi_core]
+
+[RING_DEMO.case.multi_core_backpressure]
+num_targets = 2
+cycles = 300000
+master_fifo_depth = 2
+target_fifo_depth = 2

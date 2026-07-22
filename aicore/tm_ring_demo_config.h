@@ -16,7 +16,7 @@ constexpr uint64_t kMasterAddrStride = 0x01000000ull;
 constexpr uint64_t kTargetAddressLimit = 0x80000000ull;
 constexpr uint32_t kDemoCycles = 200000;
 constexpr const char* kDefaultRingScenarioConfig =
-    "../etc/tm_ring_demo.toml";
+    "../etc/pem_config_cloud.toml";
 constexpr const char* kDefaultDdrConfig =
     "../etc/pem_config_cloud.toml";
 
@@ -61,8 +61,9 @@ struct RingDemoConfig
 
 RingDemoConfig make_demo_case(const std::string& name);
 
-// Reads the dependency-free TOML subset used by config/tm_ring_demo.toml.
-// Values in [default] are applied first, followed by [case.<case_name>].
+// Reads Ring scenario keys from either the legacy standalone TOML
+// ([default]/[case.<case_name>]) or the merged PEM TOML
+// ([RING_DEMO]/[RING_DEMO.case.<case_name>]).
 bool load_demo_config(const std::string& file_name,
                       const std::string& case_name,
                       RingDemoConfig* config,

@@ -42,10 +42,6 @@ void utest()
         &test_case, &config_error)) << config_error;
 
     const char* ddr_override = std::getenv("TM_RING_DDR_CONFIG");
-    if (ddr_override == nullptr || *ddr_override == '\0') {
-        // Legacy GTest environment variable.
-        ddr_override = std::getenv("TM_RING_DEMO_CONFIG");
-    }
     const std::string ddr_config =
         ddr_override == nullptr || *ddr_override == '\0'
             ? test_case.ddr_config_file

@@ -21,9 +21,9 @@ void print_help(const char* program)
 {
     std::cout
         << "Usage: " << program << " [options]\n"
-        << "  --config FILE       Ring scenario TOML\n"
+        << "  --config FILE       Unified PEM/Ring TOML\n"
         << "  --case NAME         multi_core or multi_core_backpressure\n"
-        << "  --ddr-config FILE   Override DDR/PEM runtime TOML\n"
+        << "  --ddr-config FILE   Optional DDR/PEM override TOML\n"
         << "  --pem-config FILE   Compatibility alias of --ddr-config\n"
         << "  --output FILE       Result text file\n"
         << "  --set KEY=VALUE     Override one scenario value (repeatable)\n";

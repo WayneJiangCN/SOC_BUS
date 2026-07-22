@@ -256,9 +256,20 @@ bool load_demo_config(const std::string& file_name,
                            trim(text.substr(equal + 1))));
     }
 
-    const std::string case_section = "case." + case_name;
-    if (sections.find(case_section) == sections.end()) {
-        *error = "missing [" + case_section + "] in " + file_name;
+    const std::string legacy_case_section = "case." + case_name;
+    const std::string ring_case_section = "RING_DEMO.case." + case_name;
+    const std::string short_ring_case_section = "RING_DEMO." + case_name;
+    const bool has_legacy_ring_config =
+        sections.find("default") != sections.end() ||
+        sections.find(legacy_case_section) != sections.end();
+    const bool has_merged_ring_config =
+        sections.find("RING_DEMO") != sections.end() ||
+        sections.find(ring_case_section) != sections.end() ||
+        sections.find(short_ring_case_section) != sections.end();
+    if (!has_legacy_ring_config && !has_merged_ring_config) {
+        *error = "missing Ring scenario section in " + file_name +
+                 "; add [RING_DEMO] or use the legacy [default]/[" +
+                 legacy_case_section + "] format";
         return false;
     }
 
@@ -268,7 +279,18 @@ bool load_demo_config(const std::string& file_name,
         *error = ex.what();
         return false;
     }
-    const std::string ordered_sections[] = {"default", case_section};
+    if (has_merged_ring_config) {
+        // In the merged mode, the same TOML file is used by Ring, DDR and BIU.
+        // A ddr_config/pem_config key inside [RING_DEMO] may still override it.
+        config->ddr_config_file = file_name;
+    }
+
+    std::vector<std::string> ordered_sections;
+    ordered_sections.push_back("default");
+    ordered_sections.push_back("RING_DEMO");
+    ordered_sections.push_back(legacy_case_section);
+    ordered_sections.push_back(ring_case_section);
+    ordered_sections.push_back(short_ring_case_section);
     for (const auto& current : ordered_sections) {
         const auto found = sections.find(current);
         if (found == sections.end()) continue;
