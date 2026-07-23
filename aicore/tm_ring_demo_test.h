@@ -94,6 +94,8 @@ make_demo_ring_cfg(const p_tm_mem_cfg_t& ddr_cfg,
     cfg->ring_link_latency = tc.ring_link_latency;
     cfg->ring_link_width_bytes = tc.ring_link_width_bytes;
     cfg->ring_router_input_depth = tc.ring_router_input_depth;
+    cfg->rsp_phys_lanes = tc.rsp_phys_lanes;
+    cfg->rsp_lane_select = tc.rsp_lane_select;
 
     for (uint32_t target = 0; target < tc.num_targets; ++target) {
         cfg->targets.push_back(make_ddr_target_cfg(ddr_cfg, tc, target));
@@ -149,6 +151,21 @@ interleave_name(const RingDemoConfig& tc)
     return tc.interleave_type == tm_bus_interleave_type_t::XOR_HASH
                ? "xor"
                : "linear";
+}
+
+inline const char*
+rsp_lane_select_name(const RingDemoConfig& tc)
+{
+    switch (tc.rsp_lane_select) {
+        case TmRingRspLaneSelect::TARGET:
+            return "target";
+        case TmRingRspLaneSelect::HASH:
+            return "hash";
+        case TmRingRspLaneSelect::ROUND_ROBIN:
+            return "round_robin";
+        default:
+            return "target";
+    }
 }
 
 inline uint32_t
@@ -401,6 +418,8 @@ run_demo(const std::string& ddr_config_file,
               << " link_capacity=" << (test_case.ring_link_latency + 1)
               << " link_width=" << test_case.ring_link_width_bytes
               << " router_input_depth=" << test_case.ring_router_input_depth
+              << " rsp_phys_lanes=" << test_case.rsp_phys_lanes
+              << " rsp_lane_select=" << rsp_lane_select_name(test_case)
               << " target_width=" << test_case.target_width_bytes
               << " target_latency="
               << (ring_cfg->targets[0]->frontend_latency +
@@ -646,11 +665,13 @@ run_demo(const std::string& ddr_config_file,
 
     const uint32_t parallel_paths =
         std::min(test_case.num_masters, test_case.num_targets);
-    const uint32_t path_width =
+    const uint32_t single_rsp_path_width =
         std::min(test_case.ring_link_width_bytes,
                  test_case.target_width_bytes);
+    const uint32_t rsp_effective_path_width =
+        single_rsp_path_width * test_case.rsp_phys_lanes;
     const double estimated_peak_bpc =
-        static_cast<double>(parallel_paths) * path_width;
+        static_cast<double>(parallel_paths) * rsp_effective_path_width;
     const double utilization_pct =
         estimated_peak_bpc == 0.0
             ? 0.0
@@ -703,6 +724,7 @@ run_demo(const std::string& ddr_config_file,
     std::cout << "TEST_UTILIZATION estimated_peak_bytes_per_cycle="
               << estimated_peak_bpc
               << " utilization_pct=" << utilization_pct
+              << " rsp_effective_path_width=" << rsp_effective_path_width
               << " target_pct=" << test_case.performance_target_pct
               << " measurement_valid="
               << (measurement_valid ? "yes" : "no")
@@ -762,6 +784,36 @@ run_demo(const std::string& ddr_config_file,
         };
     print_hot_links("req", ring->ring_top_busy_links(TmRingSubnet::REQ, 5));
     print_hot_links("rsp", ring->ring_top_busy_links(TmRingSubnet::RSP, 5));
+    auto rsp_lane_hotspots =
+        ring->ring_top_busy_lanes(TmRingSubnet::RSP, 16);
+    for (const auto& lane : rsp_lane_hotspots) {
+        if (lane.packets == 0 && lane.busy_cycles == 0 &&
+            lane.total_stalls == 0) {
+            continue;
+        }
+        std::cout << "TEST_RSP_LANE"
+                  << " src_router=" << lane.src_router
+                  << " src_dir=" << tm_ring_port_index(lane.src_dir)
+                  << " dst_router=" << lane.dst_router
+                  << " dst_dir=" << tm_ring_port_index(lane.dst_dir)
+                  << " phys_lane=" << lane.phys_lane
+                  << " packets=" << lane.packets
+                  << " bytes=" << lane.bytes
+                  << " busy_cycles=" << lane.busy_cycles
+                  << " serialization_busy_stalls="
+                  << lane.serialization_busy_stall
+                  << " inflight_limit_stalls="
+                  << lane.inflight_limit_stall
+                  << " fifo_full_stalls="
+                  << lane.link_fifo_full_stall
+                  << " bubble_stalls="
+                  << lane.bubble_reserved_stall
+                  << " downstream_fifo_full_stalls="
+                  << lane.downstream_fifo_full_stall
+                  << " total_stalls=" << lane.total_stalls
+                  << " inflight_peak=" << lane.inflight_peak
+                  << std::endl;
+    }
     std::cout << "TEST_FAIRNESS jain_index=" << fairness << std::endl;
     std::cout << "TEST_IDLE ring=" << ring_idle << " demo=" << demo_idle
               << " biu=" << biu_idle << " target=" << target_idle

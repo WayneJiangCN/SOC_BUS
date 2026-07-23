@@ -83,6 +83,8 @@ public:
     uint32_t ring_subnet = 0;
     uint32_t ring_traffic_class = 0;
     uint32_t ring_rsp_lane = 0;
+    // RSP 物理链路 lane；区别于 ring_rsp_lane 的逻辑响应通道编号。
+    uint32_t ring_rsp_phys_lane = 0;
 private:
     static uint64_t cur_gid;
     static uint32_t cur_type_id;

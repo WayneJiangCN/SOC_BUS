@@ -13,10 +13,13 @@ TmRingTargetPort::TmRingTargetPort()
 
 TmRingTargetPort::TmRingTargetPort(const std::string& name, p_tm_clk_t clk,
                                    p_tm_ring_target_cfg_t cfg,
-                                   uint32_t rd_rsp_port_num)
+                                   uint32_t rd_rsp_port_num,
+                                   uint32_t rsp_phys_lanes,
+                                   TmRingRspLaneSelect rsp_lane_select)
     : TmModule(name)
 {
-    config(name, clk, cfg, rd_rsp_port_num);
+    config(name, clk, cfg, rd_rsp_port_num, rsp_phys_lanes,
+           rsp_lane_select);
 }
 
 TmRingTargetPort::~TmRingTargetPort()
@@ -25,13 +28,17 @@ TmRingTargetPort::~TmRingTargetPort()
 
 void
 TmRingTargetPort::config(const std::string& name, p_tm_clk_t clk,
-                         p_tm_ring_target_cfg_t cfg, uint32_t rd_rsp_port_num)
+                         p_tm_ring_target_cfg_t cfg, uint32_t rd_rsp_port_num,
+                         uint32_t rsp_phys_lanes,
+                         TmRingRspLaneSelect rsp_lane_select)
 {
     name_ = name;
     this->name(name_);
     clk_ = clk;
     cfg_ = cfg;
     rd_rsp_port_num_ = rd_rsp_port_num;
+    rsp_phys_lanes_ = tm_ring_rsp_phys_lane_count(rsp_phys_lanes);
+    rsp_lane_select_ = rsp_lane_select;
     log_para_t log_para(name_ + ".log");
     log_ = pem_log::create_logger(log_para);
     PEM_LOG_INFO(log_, "[{0:d}] config rd_rsp_ports:{1:d}",
@@ -93,6 +100,7 @@ TmRingTargetPort::reset()
     next_rd_rsp_issue_time_.assign(rd_rsp_port_num_, 0);
     next_wr_req_rsp_issue_time_ = 0;
     next_wr_dat_rsp_issue_time_ = 0;
+    next_rsp_phys_lane_ = 0;
 }
 
 void
@@ -258,10 +266,12 @@ TmRingTargetPort::recv_rd_cmd_rsp()
         rsp->ring_subnet = tm_ring_subnet_index(TmRingSubnet::RSP);
         rsp->ring_traffic_class = static_cast<uint32_t>(PldCmd::RD_RSP);
         rsp->ring_rsp_lane = lane;
+        rsp->ring_rsp_phys_lane = select_rsp_phys_lane(rsp);
         // Ring 暂不可接收时不 pop Memory 响应，响应保持在原接口中。
         if (!ring_inf_->send(ring_channel(PldCmd::RD_RSP, lane), rsp)) {
             continue;
         }
+        commit_rsp_phys_lane();
         pop_response(PldCmd::RD, lane);
         PEM_LOG_INFO(log_, "[{0:d}] send_rd_rsp target:{1:d} gid:{2:d} "
                            "lane:{3:d} addr:0x{4:x}",
@@ -291,9 +301,11 @@ TmRingTargetPort::recv_wr_cmd_rsp()
     rsp->cmd = PldCmd::WR_RSP;
     rsp->ring_subnet = tm_ring_subnet_index(TmRingSubnet::RSP);
     rsp->ring_traffic_class = static_cast<uint32_t>(PldCmd::WR_RSP);
+    rsp->ring_rsp_phys_lane = select_rsp_phys_lane(rsp);
     if (!ring_inf_->send(ring_channel(PldCmd::WR_RSP), rsp)) {
         return;
     }
+    commit_rsp_phys_lane();
     pop_response(PldCmd::WR);
     PEM_LOG_INFO(log_, "[{0:d}] send_wr_rsp target:{1:d} gid:{2:d} "
                        "addr:0x{3:x}",
@@ -321,9 +333,11 @@ TmRingTargetPort::recv_wr_dat_rsp()
     rsp->cmd = PldCmd::RSP;
     rsp->ring_subnet = tm_ring_subnet_index(TmRingSubnet::RSP);
     rsp->ring_traffic_class = static_cast<uint32_t>(PldCmd::RSP);
+    rsp->ring_rsp_phys_lane = select_rsp_phys_lane(rsp);
     if (!ring_inf_->send(ring_channel(PldCmd::RSP), rsp)) {
         return;
     }
+    commit_rsp_phys_lane();
     pop_response(PldCmd::WR_DAT);
     PEM_LOG_INFO(log_, "[{0:d}] send_wr_dat_rsp target:{1:d} gid:{2:d} "
                        "addr:0x{3:x}",
@@ -358,6 +372,43 @@ uint32_t
 TmRingTargetPort::ring_channel(PldCmd cmd, uint32_t lane) const
 {
     return tm_ring_packet_channel(cmd, lane);
+}
+
+uint32_t
+TmRingTargetPort::rsp_phys_lane_count() const
+{
+    return tm_ring_rsp_phys_lane_count(rsp_phys_lanes_);
+}
+
+uint32_t
+TmRingTargetPort::select_rsp_phys_lane(p_tm_pld_t rsp)
+{
+    const uint32_t lanes = rsp_phys_lane_count();
+    if (lanes <= 1 || rsp == nullptr) {
+        return 0;
+    }
+
+    switch (rsp_lane_select_) {
+        case TmRingRspLaneSelect::TARGET:
+            return target_id_ % lanes;
+        case TmRingRspLaneSelect::HASH:
+            return static_cast<uint32_t>(
+                ((rsp->addr >> 6) ^ (rsp->addr >> 12) ^ target_id_) % lanes);
+        case TmRingRspLaneSelect::ROUND_ROBIN:
+            return next_rsp_phys_lane_ % lanes;
+        default:
+            return target_id_ % lanes;
+    }
+}
+
+void
+TmRingTargetPort::commit_rsp_phys_lane()
+{
+    const uint32_t lanes = rsp_phys_lane_count();
+    if (lanes <= 1 || rsp_lane_select_ != TmRingRspLaneSelect::ROUND_ROBIN) {
+        return;
+    }
+    next_rsp_phys_lane_ = (next_rsp_phys_lane_ + 1) % lanes;
 }
 
 tm_time_t&

@@ -51,6 +51,9 @@ class TmRingLink : public tm_engine::TmModule {
   // 根据命令类型区分头包和数据包，避免把 RD 请求误算成完整读数据大小。
   uint32_t packet_bytes(p_tm_pld_t pld) const;
   const LinkSubnetStats& subnet_stats(TmRingSubnet subnet) const;
+  const LinkSubnetStats& subnet_lane_stats(TmRingSubnet subnet,
+                                           uint32_t lane) const;
+  uint32_t subnet_lane_count(TmRingSubnet subnet) const;
   void attach(p_tm_com_inf_t dst_inf);
   uint32_t dst_router() const;
   TmRingPortDir dst_dir() const;
@@ -62,6 +65,17 @@ class TmRingLink : public tm_engine::TmModule {
   // 队列延迟到期后尝试发送给下游 Router；下游阻塞时保留队头。
   void drain_ready_packets();
   uint32_t dst_channel(p_tm_pld_t pld) const;
+  TmRingSubnet packet_subnet(p_tm_pld_t pld) const;
+  TmRingSubnet lane_subnet(uint32_t idx) const;
+  uint32_t physical_lane(p_tm_pld_t pld) const;
+  uint32_t lane_index(TmRingSubnet subnet, uint32_t lane) const;
+  uint32_t total_lane_count() const;
+  LinkSubnetStats& aggregate_stats(TmRingSubnet subnet);
+  const LinkSubnetStats& aggregate_stats(TmRingSubnet subnet) const;
+  void record_stall(uint32_t lane_idx, TmRingSubnet subnet,
+                    uint64_t LinkSubnetStats::*field);
+  void record_packet(uint32_t lane_idx, TmRingSubnet subnet, uint32_t bytes,
+                     uint32_t serialization_cycles);
 
   std::string name_;
   tm_engine::p_tm_clk_t clk_ = nullptr;
@@ -75,7 +89,8 @@ class TmRingLink : public tm_engine::TmModule {
   std::vector<uint32_t> inflight_count_;
   std::vector<tm_engine::tm_time_t> next_send_time_;
   std::vector<p_tm_com_que_t> inflight_packets_;
-  std::vector<LinkSubnetStats> stats_;
+  std::vector<LinkSubnetStats> lane_stats_;
+  std::vector<LinkSubnetStats> aggregate_stats_;
   // dst_out_inf_ 是 Link 的发送端，通过 connect() 连接下游 Router 输入端。
   p_tm_com_inf_t dst_out_inf_ = nullptr;
   p_logger_t log_ = nullptr;

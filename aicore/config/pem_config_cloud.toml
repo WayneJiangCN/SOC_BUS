@@ -70,6 +70,16 @@ ring_link_latency = 1
 ring_link_width_bytes = 16
 ring_router_input_depth = 2
 
+# RSP 物理 lane 数。这个参数表示真实并行回包链路资源；
+# rd_rsp_port_num 只表示逻辑响应端口/通道编号，不直接增加物理带宽。
+rsp_phys_lanes = 1
+
+# RSP 物理 lane 选择策略：
+# target      = 按 target/DDR channel 分配，适合模拟多 DRAM channel 回包；
+# hash        = 按地址 hash 分配，适合观察 lane 均衡；
+# round_robin = 轮询分配，适合压力测试，不建议作为默认架构假设。
+rsp_lane_select = "target"
+
 clock_ghz = 1.0
 performance_target_pct = 80.0
 require_performance_target = false
@@ -81,3 +91,12 @@ num_targets = 2
 cycles = 300000
 master_fifo_depth = 2
 target_fifo_depth = 2
+
+[RING_DEMO.case.multi_core_rsp_4lane]
+# 验证 RSP 多物理 lane 是否生效；不复制 ring/router，只增加 RSP link 并行资源。
+rsp_phys_lanes = 4
+rsp_lane_select = "target"
+global_osd = 256
+target_rd_osd = 4096
+target_wr_osd = 4096
+target_acc_osd = 4096

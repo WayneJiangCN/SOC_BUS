@@ -114,6 +114,8 @@ std::string option_to_key(const std::string& option)
         {"--link-latency", "ring_link_latency"},
         {"--link-width", "ring_link_width_bytes"},
         {"--router-input-depth", "ring_router_input_depth"},
+        {"--rsp-phys-lanes", "rsp_phys_lanes"},
+        {"--rsp-lane-select", "rsp_lane_select"},
         {"--master-fifo-depth", "master_fifo_depth"},
         {"--target-fifo-depth", "target_fifo_depth"},
         {"--master-rd-osd", "master_rd_osd"},
@@ -142,6 +144,10 @@ RingDemoConfig make_demo_case(const std::string& name)
         config.cycles = 300000;
         config.master_fifo_depth = 2;
         config.target_fifo_depth = 2;
+        return config;
+    }
+    if (name == "multi_core_rsp_4lane") {
+        config.name = name;
         return config;
     }
     throw std::invalid_argument("unknown multi-core ring demo case: " + name);
@@ -192,6 +198,23 @@ bool apply_demo_value(const std::string& raw_key, const std::string& raw_value,
     if (key == "clock_ghz") {
         return parse_double(value, key, &config->clock_ghz, error);
     }
+    if (key == "rsp_lane_select") {
+        if (value == "target") {
+            config->rsp_lane_select = TmRingRspLaneSelect::TARGET;
+            return true;
+        }
+        if (value == "hash") {
+            config->rsp_lane_select = TmRingRspLaneSelect::HASH;
+            return true;
+        }
+        if (value == "round_robin") {
+            config->rsp_lane_select = TmRingRspLaneSelect::ROUND_ROBIN;
+            return true;
+        }
+        *error = "rsp_lane_select expects target, hash or round_robin, got: " +
+                 value;
+        return false;
+    }
 
     uint32_t* field = nullptr;
     if (key == "num_masters") field = &config->num_masters;
@@ -213,6 +236,7 @@ bool apply_demo_value(const std::string& raw_key, const std::string& raw_value,
     else if (key == "ring_link_latency") field = &config->ring_link_latency;
     else if (key == "ring_link_width_bytes") field = &config->ring_link_width_bytes;
     else if (key == "ring_router_input_depth") field = &config->ring_router_input_depth;
+    else if (key == "rsp_phys_lanes") field = &config->rsp_phys_lanes;
     else {
         *error = "unknown configuration key: " + key;
         return false;
@@ -365,6 +389,7 @@ bool validate_config(const RingDemoConfig& config, std::string* error)
         config.ring_link_width_bytes == 0 || config.master_fifo_depth == 0 ||
         config.target_fifo_depth == 0 || config.ring_link_latency == 0 ||
         config.ring_router_input_depth == 0 ||
+        config.rsp_phys_lanes == 0 ||
         config.master_rd_osd == 0 ||
         config.master_wr_osd == 0 || config.global_osd == 0 ||
         config.target_rd_osd == 0 || config.target_wr_osd == 0 ||

@@ -105,7 +105,8 @@ TmRingFabric::create_target_ports()
         auto target_cfg = cfg_->targets[i];
         target_ports_.push_back(tm_make_ring_target_port(
             this->name() + "_target_port_" + std::to_string(i), clk_,
-            target_cfg, cfg_->rd_rsp_port_num));
+            target_cfg, cfg_->rd_rsp_port_num, cfg_->rsp_phys_lanes,
+            cfg_->rsp_lane_select));
     }
 }
 
@@ -356,6 +357,72 @@ TmRingFabric::ring_top_busy_links(TmRingSubnet subnet, uint32_t limit) const
         hot_links.resize(limit);
     }
     return hot_links;
+}
+
+std::vector<TmRingLinkLaneHotspot>
+TmRingFabric::ring_top_busy_lanes(TmRingSubnet subnet, uint32_t limit) const
+{
+    std::vector<TmRingLinkLaneHotspot> hot_lanes;
+    for (const auto& it : links_) {
+        auto link = it.second;
+        const uint32_t lane_count = link->subnet_lane_count(subnet);
+        for (uint32_t lane = 0; lane < lane_count; ++lane) {
+            const auto& stats = link->subnet_lane_stats(subnet, lane);
+
+            TmRingLinkLaneHotspot hot;
+            hot.src_router =
+                static_cast<uint32_t>((it.first >> 48) & 0xffff);
+            hot.src_dir =
+                static_cast<TmRingPortDir>((it.first >> 40) & 0xff);
+            hot.dst_router = link->dst_router();
+            hot.dst_dir = link->dst_dir();
+            hot.subnet = subnet;
+            hot.phys_lane = lane;
+            hot.packets = stats.packets;
+            hot.bytes = stats.bytes;
+            hot.busy_cycles = stats.busy_cycles;
+            hot.serialization_busy_stall = stats.serialization_busy_stall;
+            hot.inflight_limit_stall = stats.inflight_limit_stall;
+            hot.link_fifo_full_stall = stats.link_fifo_full_stall;
+            hot.bubble_reserved_stall = stats.bubble_reserved_stall;
+            hot.downstream_fifo_full_stall =
+                stats.downstream_inf_full_stall;
+            hot.total_stalls = stats.serialization_busy_stall +
+                               stats.inflight_limit_stall +
+                               stats.link_fifo_full_stall +
+                               stats.bubble_reserved_stall +
+                               stats.downstream_inf_full_stall;
+            hot.inflight_peak = stats.inflight_peak;
+            hot_lanes.push_back(hot);
+        }
+    }
+
+    std::sort(hot_lanes.begin(), hot_lanes.end(),
+              [](const TmRingLinkLaneHotspot& lhs,
+                 const TmRingLinkLaneHotspot& rhs) {
+                  if (lhs.total_stalls != rhs.total_stalls) {
+                      return lhs.total_stalls > rhs.total_stalls;
+                  }
+                  if (lhs.busy_cycles != rhs.busy_cycles) {
+                      return lhs.busy_cycles > rhs.busy_cycles;
+                  }
+                  if (lhs.bytes != rhs.bytes) {
+                      return lhs.bytes > rhs.bytes;
+                  }
+                  if (lhs.src_router != rhs.src_router) {
+                      return lhs.src_router < rhs.src_router;
+                  }
+                  if (lhs.phys_lane != rhs.phys_lane) {
+                      return lhs.phys_lane < rhs.phys_lane;
+                  }
+                  return tm_ring_port_index(lhs.src_dir) <
+                         tm_ring_port_index(rhs.src_dir);
+              });
+
+    if (hot_lanes.size() > limit) {
+        hot_lanes.resize(limit);
+    }
+    return hot_lanes;
 }
 
 uint64_t

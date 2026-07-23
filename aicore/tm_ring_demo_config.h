@@ -7,6 +7,7 @@
 
 #include "pem_trdemo.h"
 #include "tm_bus_types.h"
+#include "tm_ring_types.h"
 
 namespace tm_ring_demo {
 
@@ -53,6 +54,8 @@ struct RingDemoConfig
     uint32_t ring_link_latency = 1;
     uint32_t ring_link_width_bytes = 16;
     uint32_t ring_router_input_depth = 2;
+    uint32_t rsp_phys_lanes = 1;
+    TmRingRspLaneSelect rsp_lane_select = TmRingRspLaneSelect::TARGET;
 
     double performance_target_pct = 80.0;
     double clock_ghz = 1.0;

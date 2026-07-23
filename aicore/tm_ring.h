@@ -67,6 +67,27 @@ struct TmRingLinkHotspot
     uint32_t inflight_peak = 0;
 };
 
+struct TmRingLinkLaneHotspot
+{
+    uint32_t src_router = 0;
+    TmRingPortDir src_dir = TmRingPortDir::LOCAL;
+    uint32_t dst_router = 0;
+    TmRingPortDir dst_dir = TmRingPortDir::LOCAL;
+    TmRingSubnet subnet = TmRingSubnet::REQ;
+    uint32_t phys_lane = 0;
+
+    uint64_t packets = 0;
+    uint64_t bytes = 0;
+    uint64_t busy_cycles = 0;
+    uint64_t serialization_busy_stall = 0;
+    uint64_t inflight_limit_stall = 0;
+    uint64_t link_fifo_full_stall = 0;
+    uint64_t bubble_reserved_stall = 0;
+    uint64_t downstream_fifo_full_stall = 0;
+    uint64_t total_stalls = 0;
+    uint32_t inflight_peak = 0;
+};
+
 /*
  * Ring 互连顶层模型。
  *
@@ -113,6 +134,8 @@ class TmRingFabric : public tm_engine::TmModule
     TmRingLinkStallBreakdown ring_link_stall_breakdown() const;
     std::vector<TmRingLinkHotspot>
     ring_top_busy_links(TmRingSubnet subnet, uint32_t limit) const;
+    std::vector<TmRingLinkLaneHotspot>
+    ring_top_busy_lanes(TmRingSubnet subnet, uint32_t limit) const;
     uint64_t ring_link_stalls() const;
 
   protected:

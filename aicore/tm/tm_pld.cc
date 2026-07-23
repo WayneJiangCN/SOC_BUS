@@ -87,6 +87,7 @@ TmPld::TmPld(std::shared_ptr<TmPld> pld)
 , ring_subnet(pld->ring_subnet)
 , ring_traffic_class(pld->ring_traffic_class)
 , ring_rsp_lane(pld->ring_rsp_lane)
+, ring_rsp_phys_lane(pld->ring_rsp_phys_lane)
 {
 
 }

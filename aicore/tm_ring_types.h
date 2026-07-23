@@ -32,9 +32,19 @@ enum class TmRingSubnet : uint32_t {
   RSP = 1,
 };
 
+enum class TmRingRspLaneSelect : uint32_t {
+  TARGET = 0,
+  HASH = 1,
+  ROUND_ROBIN = 2,
+};
+
 inline constexpr uint32_t tm_ring_port_count() { return 3; }
 
 inline constexpr uint32_t tm_ring_subnet_count() { return 2; }
+
+inline constexpr uint32_t tm_ring_rsp_phys_lane_count(uint32_t lanes) {
+  return lanes == 0 ? 1 : lanes;
+}
 
 // TmInf 只作为模块间 valid/ready 事件边界，真实缓存由 tm_que 表达。
 inline constexpr uint32_t tm_ring_inf_depth() { return 2; }
@@ -129,6 +139,9 @@ struct TmRingCfg {
   uint32_t num_masters = 1;
   // 读响应返回通道数量；lane0 使用 RD_RSP 基础通道。
   uint32_t rd_rsp_port_num = 2;
+  // RSP 物理 lane 数；rd_rsp_port_num 仅表示逻辑响应通道数。
+  uint32_t rsp_phys_lanes = 1;
+  TmRingRspLaneSelect rsp_lane_select = TmRingRspLaneSelect::TARGET;
 
   // Master NIU 内部 FIFO 深度，是真正的 master 侧缓存资源。
   uint32_t master_rd_cmd_fifo_depth = 8;

@@ -29,11 +29,17 @@ class TmRingTargetPort : public tm_engine::TmModule
   public:
     TmRingTargetPort();
     TmRingTargetPort(const std::string& name, tm_engine::p_tm_clk_t clk,
-                     p_tm_ring_target_cfg_t cfg, uint32_t rd_rsp_port_num);
+                     p_tm_ring_target_cfg_t cfg, uint32_t rd_rsp_port_num,
+                     uint32_t rsp_phys_lanes = 1,
+                     TmRingRspLaneSelect rsp_lane_select =
+                         TmRingRspLaneSelect::TARGET);
     ~TmRingTargetPort();
 
     void config(const std::string& name, tm_engine::p_tm_clk_t clk,
-                p_tm_ring_target_cfg_t cfg, uint32_t rd_rsp_port_num);
+                p_tm_ring_target_cfg_t cfg, uint32_t rd_rsp_port_num,
+                uint32_t rsp_phys_lanes = 1,
+                TmRingRspLaneSelect rsp_lane_select =
+                    TmRingRspLaneSelect::TARGET);
     void reset();
     bool idle() const;
 
@@ -69,6 +75,9 @@ class TmRingTargetPort : public tm_engine::TmModule
     void recv_ring_cmd(PldCmd cmd);
     p_tm_com_que_t req_q(PldCmd cmd) const;
     uint32_t ring_channel(PldCmd cmd, uint32_t lane = 0) const;
+    uint32_t rsp_phys_lane_count() const;
+    uint32_t select_rsp_phys_lane(p_tm_pld_t rsp);
+    void commit_rsp_phys_lane();
     tm_engine::tm_time_t& next_req_issue_time(PldCmd cmd);
     tm_engine::tm_time_t& next_rsp_issue_time(PldCmd cmd,
                                               uint32_t lane = 0);
@@ -79,6 +88,9 @@ class TmRingTargetPort : public tm_engine::TmModule
     p_tm_ring_target_cfg_t cfg_ = nullptr;
     uint32_t target_id_ = 0;
     uint32_t rd_rsp_port_num_ = 0;
+    uint32_t rsp_phys_lanes_ = 1;
+    TmRingRspLaneSelect rsp_lane_select_ = TmRingRspLaneSelect::TARGET;
+    uint32_t next_rsp_phys_lane_ = 0;
     std::shared_ptr<TmBusFlowCtrl> flow_ctrl_ = nullptr;
     p_tm_com_inf_t inf_ = nullptr;
     p_tm_com_inf_t ring_inf_ = nullptr;
@@ -101,9 +113,13 @@ using p_tm_ring_target_port_t = std::shared_ptr<tm_ring_target_port_t>;
 
 inline p_tm_ring_target_port_t
 tm_make_ring_target_port(const std::string& name, tm_engine::p_tm_clk_t clk,
-                         p_tm_ring_target_cfg_t cfg, uint32_t rd_rsp_port_num)
+                         p_tm_ring_target_cfg_t cfg, uint32_t rd_rsp_port_num,
+                         uint32_t rsp_phys_lanes = 1,
+                         TmRingRspLaneSelect rsp_lane_select =
+                             TmRingRspLaneSelect::TARGET)
 {
-    return std::make_shared<TmRingTargetPort>(name, clk, cfg, rd_rsp_port_num);
+    return std::make_shared<TmRingTargetPort>(
+        name, clk, cfg, rd_rsp_port_num, rsp_phys_lanes, rsp_lane_select);
 }
 
 #endif  // _TM_RING_TARGET_PORT_H_
