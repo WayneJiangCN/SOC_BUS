@@ -668,8 +668,13 @@ run_demo(const std::string& ddr_config_file,
     const uint32_t single_rsp_path_width =
         std::min(test_case.ring_link_width_bytes,
                  test_case.target_width_bytes);
+    const uint32_t rsp_lane_factor =
+        test_case.rsp_lane_select == TmRingRspLaneSelect::TARGET
+            ? 1
+            : test_case.rsp_phys_lanes;
     const uint32_t rsp_effective_path_width =
-        single_rsp_path_width * test_case.rsp_phys_lanes;
+        std::min(test_case.ring_link_width_bytes * rsp_lane_factor,
+                 test_case.target_width_bytes);
     const double estimated_peak_bpc =
         static_cast<double>(parallel_paths) * rsp_effective_path_width;
     const double utilization_pct =
@@ -725,6 +730,7 @@ run_demo(const std::string& ddr_config_file,
               << estimated_peak_bpc
               << " utilization_pct=" << utilization_pct
               << " rsp_effective_path_width=" << rsp_effective_path_width
+              << " rsp_lane_factor=" << rsp_lane_factor
               << " target_pct=" << test_case.performance_target_pct
               << " measurement_valid="
               << (measurement_valid ? "yes" : "no")
